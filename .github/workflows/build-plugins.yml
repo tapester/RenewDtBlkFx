@@ -1,0 +1,103 @@
+name: Build DtBlkFx plugins
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            triplet: x64-windows
+            generator: "Visual Studio 17 2022"
+            cmake_extra: ""
+          - name: macos
+            os: macos-latest
+            triplet: arm64-osx
+            generator: "Ninja"
+            cmake_extra: "-DCMAKE_OSX_ARCHITECTURES=arm64"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC (Windows only)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Bootstrap vcpkg
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./modules/vcpkg/bootstrap-vcpkg.bat
+          else
+            ./modules/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Install FFTW3 via vcpkg
+        shell: bash
+        env:
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+        run: |
+          ./modules/vcpkg/vcpkg install fftw3:${{ matrix.triplet }}
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -G "${{ matrix.generator }}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
+            ${{ matrix.cmake_extra }}
+
+      - name: Build plugin bundles
+        shell: bash
+        run: |
+          cmake --build build --config Release --parallel
+
+      - name: Collect VST3 artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts/vst3
+          find build -type d -iname "*.vst3" -exec cp -R {} artifacts/vst3/ \;
+          find artifacts/vst3 -maxdepth 2 -print
+
+      - name: Collect CLAP artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts/clap
+          find build -type d -iname "*.clap" -exec cp -R {} artifacts/clap/ \;
+          find artifacts/clap -maxdepth 2 -print
+
+      - name: Upload VST3 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DtBlkFx-${{ matrix.name }}-VST3
+          path: artifacts/vst3/**
+          if-no-files-found: error
+
+      - name: Upload CLAP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DtBlkFx-${{ matrix.name }}-CLAP
+          path: artifacts/clap/**
+          if-no-files-found: error
+
+      - name: Validate plugin artifacts were produced
+        shell: bash
+        run: |
+          test -n "$(find artifacts -type d \( -iname "*.vst3" -o -iname "*.clap" \) -print -quit)"
