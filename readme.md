@@ -2,25 +2,7 @@
 
 DtBlkFx is a Fast-Fourier-Transform (FFT) based VST plug-in.
 
-[Downloads](https://skullzy.ca/software/DtBlkFx/releases)
-
-This is a fork of the original DtBlkFx by Darrell Tam. The original source was
-not ready for public consumption. I have spent a considerable amount of time
-getting this ready for a public release.
-
-Despite a major overhaul of the project structure, I have only made very small
-changes to the source itself to enable x64 builds on windows. There is still a
-long way to go to making it clean and easy to hack on.
-
-That being said, anyone with a reasonable amount C++ experience shouldn't find
-it too difficult to get started. I am glad to accept pull requests and any other
-help I can get.
-
-## Donate
-
-If you feel the urge to support my work, you can find out how to do that here.
-
-https://skullzy.ca/donate
+Forked from https://codeberg.org/skullzy/DtBlkFx
 
 ## Usage examples
 
