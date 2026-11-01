@@ -34,25 +34,45 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Set repo-local vcpkg
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE "modules\vcpkg"
+          if (-not (Test-Path (Join-Path $root "vcpkg.exe"))) {
+            throw "Repo-local vcpkg.exe not found at $root"
+          }
+          $env:VCPKG_ROOT = $root
+          $env:PATH = "$root;$env:PATH"
+          Write-Host "Using repo-local vcpkg: $root"
+
       - name: Setup MSVC (Windows only)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Bootstrap vcpkg
-        shell: bash
+      - name: Bootstrap repo-local vcpkg
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            ./modules/vcpkg/bootstrap-vcpkg.bat
-          else
-            ./modules/vcpkg/bootstrap-vcpkg.sh
-          fi
+          & "$env:GITHUB_WORKSPACE\modules\vcpkg\bootstrap-vcpkg.bat"
 
-      - name: Install FFTW3 via vcpkg
-        shell: bash
-        env:
-          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+      - name: Install FFTW3 via repo-local vcpkg
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          ./modules/vcpkg/vcpkg install fftw3:${{ matrix.triplet }}
+          & "$env:GITHUB_WORKSPACE\modules\vcpkg\vcpkg.exe" install fftw3:x64-windows
+
+      - name: Bootstrap vcpkg (macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./modules/vcpkg/bootstrap-vcpkg.sh
+
+      - name: Install FFTW3 via repo-local vcpkg (macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./modules/vcpkg/vcpkg install fftw3:arm64-osx
 
       - name: Configure CMake
         shell: bash
@@ -96,8 +116,3 @@ jobs:
           name: DtBlkFx-${{ matrix.name }}-CLAP
           path: artifacts/clap/**
           if-no-files-found: error
-
-      - name: Validate plugin artifacts were produced
-        shell: bash
-        run: |
-          test -n "$(find artifacts -type d \( -iname "*.vst3" -o -iname "*.clap" \) -print -quit)"
