@@ -4,3 +4,7 @@
 [submodule "modules/vcpkg"]
 	path = modules/vcpkg
 	url = https://github.com/microsoft/vcpkg.git
+[submodule "modules/clap-juce-extensions"]
+	path = modules/clap-juce-extensions
+	url = https://github.com/free-audio/clap-juce-extensions.git
+	branch = main
