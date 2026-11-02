@@ -6,18 +6,12 @@ Forked from https://codeberg.org/skullzy/DtBlkFx
 
 ## Build using CMake
 Windows with Powershell:
-cmake -S . -B build/windows `
-  -G Ninja `
-  -DCMAKE_BUILD_TYPE=Release `
-  -DCMAKE_TOOLCHAIN_FILE="$PWD/modules/vcpkg/scripts/buildsystems/vcpkg.cmake" `
-  -DVCPKG_TARGET_TRIPLET=x64-windows
+cmake --preset windows-x64
+cmake --build --preset windows-x64 --parallel
 
-MacOS with Bash:
-cmake -S . -B build/macos `
-  -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_TOOLCHAIN_FILE="$PWD/modules/vcpkg/scripts/buildsystems/vcpkg.cmake" \
-  -DVCPKG_TARGET_TRIPLET=arm64-osx
+MacOS Silicon with Bash:
+cmake --preset macos-arm64
+cmake --build --preset macos-arm64 --parallel
 
 ## Usage examples
 
