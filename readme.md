@@ -4,6 +4,21 @@ DtBlkFx is a Fast-Fourier-Transform (FFT) based VST plug-in.
 
 Forked from https://codeberg.org/skullzy/DtBlkFx
 
+## Build using CMake
+Windows with Powershell:
+cmake -S . -B build/windows `
+  -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/modules/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows
+
+MacOS with Bash:
+cmake -S . -B build/macos `
+  -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/modules/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+  -DVCPKG_TARGET_TRIPLET=arm64-osx
+
 ## Usage examples
 
 - Precision parametric equalizing with sharp-roll off
