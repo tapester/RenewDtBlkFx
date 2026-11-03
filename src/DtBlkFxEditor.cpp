@@ -29,6 +29,7 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
   addAndMakeVisible(title);
 
   viewport.setViewedComponent(&content, false);
+  // The eight effect slots exceed the editor height, so the content scrolls vertically.
   viewport.setScrollBarsShown(true, false);
   addAndMakeVisible(viewport);
 
@@ -110,6 +111,7 @@ void DtBlkFxAudioProcessorEditor::resized()
   title.setBounds(136, 5, getWidth() - 152, 36);
   viewport.setBounds(8, 44, getWidth() - 16, getHeight() - 52);
 
+  // Keep controls usable at narrow sizes; the viewport supplies scrolling for vertical overflow.
   const int width = juce::jmax(600, viewport.getWidth() - 20);
   const int margin = 12;
   const int globalHeight = 166;

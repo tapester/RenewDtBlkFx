@@ -17,6 +17,7 @@
 namespace {
 constexpr int tableCount = 120;
 constexpr int harmonicCount = 128;
+// Precomputed per-sweep harmonic power envelopes indexed by time slice and harmonic number.
 constexpr std::array<std::array<float, tableCount * harmonicCount>, 5> sweepTables{{
     {{
         0.985267f, 8.60609e-07f, 0.012283f, 8.55749e-07f, 0.00162237f, 8.47713e-07f, 0.000433958f, 8.36601e-07f,

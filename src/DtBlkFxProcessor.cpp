@@ -24,6 +24,7 @@
 #include <cmath>
 
 namespace {
+// Choice order is part of the conversion to legacy effect type codes below.
 const juce::StringArray& getEffectTypes()
 {
   static const juce::StringArray effectTypes{"Filter",
@@ -198,6 +199,7 @@ DtBlkFxAudioProcessor::LegacyParameterBlock DtBlkFxAudioProcessor::getLegacyPara
   };
   const auto readBool = [&readFloat](const juce::String& id) { return readFloat(id) >= 0.5f; };
 
+  // The engine consumes the original compact 44-float parameter representation.
   LegacyParameterBlock legacy{};
   const auto mixBack = juce::jlimit(0.0f, 1.0f, readFloat("mixback"));
   legacy[0] = readBool("power_match") ? mixBack * 0.5f : 1.0f - mixBack * 0.499f;
@@ -228,6 +230,7 @@ void DtBlkFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
   juce::ignoreUnused(samplesPerBlock);
   currentSampleRate = sampleRate;
 
+  // FFT plans and buffers are prepared here so processBlock does not allocate them.
   const auto legacyParameters = getLegacyParameterBlock();
   const auto fftPlanIndex = getLegacyFftPlanIndex(legacyParameters[2]);
   if (!engine->prepare(fftPlanIndex, sampleRate)) {
@@ -301,6 +304,7 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
   for (int channel = 0; channel < channelCount; ++channel)
     channels[static_cast<size_t>(channel)] = buffer.getWritePointer(channel);
 
+  // Capture host transport timing for beat-synchronized frame scheduling.
   const auto legacyParameters = getLegacyParameterBlock();
   auto tempo = 120.0;
   auto beatPhaseSamples = 0.0;
@@ -348,6 +352,7 @@ juce::AudioProcessorEditor* DtBlkFxAudioProcessor::createEditor()
 
 void DtBlkFxAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
+  // Store the full parameter tree so automation values survive project reloads.
   if (const auto xml = parameters.copyState().createXml())
     copyXmlToBinary(*xml, destData);
 }

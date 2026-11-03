@@ -27,6 +27,7 @@
 
 class DtBlkFxEngine {
 public:
+  // FFT settings are indexed by the legacy parameter format; keep their order stable.
   static constexpr int fftSizeCount = 34;
   static constexpr int maxFftSize = 80640;
 
@@ -49,6 +50,7 @@ public:
   DtBlkFxEngine(const DtBlkFxEngine&) = delete;
   DtBlkFxEngine& operator=(const DtBlkFxEngine&) = delete;
 
+  // Allocate FFT plans and working buffers before audio processing begins.
   bool prepare(int fftSizeIndex = 0, double sampleRate = 44100.0);
   void release() noexcept;
   bool isPrepared() const noexcept { return timeBuffer != nullptr; }
@@ -89,6 +91,7 @@ private:
   using LegacyParameters = std::array<float, 44>;
 
   struct ParameterEvent {
+    // Parameter snapshots are timestamped so each FFT frame uses values at its start.
     size_t samplePosition = 0;
     size_t rampStartSample = 0;
     LegacyParameters values{};
@@ -104,7 +107,7 @@ private:
     std::vector<float> outputFrame;
     std::vector<ComplexBin> spectrum;
     std::vector<float> outputRing;
-    // Absolute sample tags distinguish live delay history from wrapped ring data.
+    // Absolute sample tags prevent stale ring entries from being mistaken for live audio.
     std::vector<size_t> outputRingPositions;
   };
 

@@ -48,6 +48,7 @@ bool DtBlkFxEngine::prepare(int fftSizeIndex, double sampleRate)
     return false;
   }
 
+  // Build every supported plan up front because legacy automation can change FFT size.
   for (int i = 0; i < fftSizeCount; ++i) {
     const auto size = fftSizes[static_cast<size_t>(i)];
     auto* fftwFrequencyBuffer = reinterpret_cast<fftwf_complex*>(frequencyBuffer);
@@ -65,6 +66,7 @@ bool DtBlkFxEngine::prepare(int fftSizeIndex, double sampleRate)
   fftSize = fftSizeAt(fftSizeIndex);
   this->sampleRate = sampleRate;
   try {
+    // Reserve peak capacities during setup to avoid vector growth on the audio thread.
     const auto maximumBinCount = static_cast<size_t>(fftBinCount(maxFftSize));
     bins.resize(static_cast<size_t>(fftBinCount(fftSize)));
     bins.reserve(maximumBinCount);
@@ -218,6 +220,7 @@ bool DtBlkFxEngine::configureLegacyParameters(const std::array<float, 44>& param
   useLegacyParameterTimeline = true;
   parameterSyncEnabled = syncParameters;
 
+  // Clamp malformed or out-of-range host values before scheduling them for a frame.
   auto sanitized = parameters;
   for (auto& value : sanitized)
     value = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
@@ -351,6 +354,7 @@ bool DtBlkFxEngine::process(float* const* channels, int channelCount, int sample
     if (channels[channel] == nullptr)
       return false;
 
+  // Consume and emit one sample at a time so frame boundaries remain independent of host block size.
   for (int sample = 0; sample < sampleCount; ++sample) {
     std::array<double, 2> inputPowers{};
     for (int channel = 0; channel < channelCount; ++channel) {

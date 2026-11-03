@@ -51,6 +51,7 @@ private:
   std::array<juce::ComboBox, 8> effectTypes;
   std::array<std::array<juce::Slider, 4>, 8> effectSliders;
   std::array<std::array<juce::Label, 4>, 8> effectLabels;
+  // Keep each UI control bound to its matching host parameter for automation and state restore.
   std::array<std::unique_ptr<SliderAttachment>, 4> globalSliderAttachments;
   std::array<std::unique_ptr<ButtonAttachment>, 3> globalButtonAttachments;
   std::array<std::unique_ptr<ComboBoxAttachment>, 8> effectTypeAttachments;

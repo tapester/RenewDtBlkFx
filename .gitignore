@@ -1,1 +1,34 @@
-/build
+# CMake and JUCE build products. The presets write all generated builds here.
+/build/
+
+# CMake-generated files that may appear if a build is configured in the source tree.
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+compile_commands.json
+
+# Per-user preset overrides can contain machine-specific paths and toolchains.
+CMakeUserPresets.json
+
+# Visual Studio workspace state and per-user project settings are machine-specific.
+.vs/
+*.sln
+*.suo
+*.user
+*.VC.db
+*.VC.VC.opendb
+
+# Xcode user state is local to a developer's machine.
+.DS_Store
+xcuserdata/
+*.xcuserstate
+
+# Local editor settings should not override the project's shared configuration.
+.vscode/
+.idea/
+
+# Files created by Windows Explorer and other operating-system utilities.
+Thumbs.db
+Desktop.ini

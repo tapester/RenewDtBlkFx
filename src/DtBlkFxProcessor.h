@@ -35,6 +35,7 @@ public:
 
   juce::AudioProcessorValueTreeState parameters;
 
+  // Translate the stable host-facing parameter IDs into the engine's legacy 44-value layout.
   static juce::String fxParameterID(int slot, const juce::String& parameter);
   LegacyParameterBlock getLegacyParameterBlock() const;
 
@@ -66,6 +67,7 @@ public:
   void setStateInformation(const void* data, int sizeInBytes) override;
 
 private:
+  // One normalized host parameter block is adapted to the engine's original control ranges.
   static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
   std::unique_ptr<DtBlkFxEngine> engine;

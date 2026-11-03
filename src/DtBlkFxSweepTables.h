@@ -11,4 +11,5 @@
 
 #pragma once
 
+// Return the stored harmonic power for one sweep, time slice, and harmonic; invalid indices yield 0.
 float getSweepHarmonicPower(int sweepIndex, int tableIndex, int harmonic) noexcept;
