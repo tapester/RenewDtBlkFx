@@ -19,6 +19,62 @@
 
 #include "DtBlkFxProcessor.h"
 #include "DtBlkFxEditor.h"
+#include "DtBlkFxEngine.h"
+
+#include <cmath>
+
+namespace {
+const juce::StringArray& getEffectTypes()
+{
+  static const juce::StringArray effectTypes{"Filter",
+                                             "Contrast",
+                                             "Smear",
+                                             "Threshold",
+                                             "Clip",
+                                             "Resize",
+                                             "Resample",
+                                             "Shift",
+                                             "ConstShift",
+                                             "None",
+                                             "None",
+                                             "HarmShift",
+                                             "HarmRepitch",
+                                             "HarmFilt",
+                                             "AutoHarm",
+                                             "Triangles",
+                                             "Squares",
+                                             "Saws",
+                                             "Pointy",
+                                             "Sweep",
+                                             "HarmMask",
+                                             "AutoHarmMask",
+                                             "AutoSubharm1Mask",
+                                             "AutoSubharm2Mask",
+                                             "AutoSubharm3Mask",
+                                             "ThreshMask",
+                                             "Vocode",
+                                             "HarmMatch L>R",
+                                             "HarmMatch R>L",
+                                             "CrossMix",
+                                             "WarpMix"};
+  return effectTypes;
+}
+
+std::unique_ptr<juce::AudioParameterFloat>
+makeUnitParameter(const juce::String& id, const juce::String& name, float defaultValue)
+{
+  return std::make_unique<juce::AudioParameterFloat>(
+      id, name, juce::NormalisableRange<float>{0.0f, 1.0f, 0.001f}, defaultValue);
+}
+
+int getLegacyFftPlanIndex(float parameter)
+{
+  return juce::jlimit(0,
+                      DtBlkFxEngine::fftSizeCount - 1,
+                      static_cast<int>(parameter * 255.0f / 4.0f - 1.5f));
+}
+
+} // namespace
 
 DtBlkFxAudioProcessor::DtBlkFxAudioProcessor()
     : AudioProcessor(BusesProperties()
@@ -28,7 +84,9 @@ DtBlkFxAudioProcessor::DtBlkFxAudioProcessor()
 #  endif
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)
 #endif
-      )
+                         )
+    , parameters(*this, nullptr, "Parameters", createParameterLayout())
+    , engine(std::make_unique<DtBlkFxEngine>())
 {
 }
 
@@ -68,7 +126,10 @@ bool DtBlkFxAudioProcessor::isMidiEffect() const
 
 double DtBlkFxAudioProcessor::getTailLengthSeconds() const
 {
-  return 0.0;
+  const auto frameLatency =
+      currentSampleRate > 0.0 ? static_cast<double>(engine->getLatencySamples()) / currentSampleRate
+                              : 0.0;
+  return 6.0 + frameLatency;
 }
 
 int DtBlkFxAudioProcessor::getNumPrograms()
@@ -98,17 +159,99 @@ void DtBlkFxAudioProcessor::changeProgramName(int index, const juce::String& new
   juce::ignoreUnused(index, newName);
 }
 
+juce::AudioProcessorValueTreeState::ParameterLayout DtBlkFxAudioProcessor::createParameterLayout()
+{
+  juce::AudioProcessorValueTreeState::ParameterLayout layout;
+
+  layout.add(makeUnitParameter("mixback", "Mix Back", 1.0f));
+  layout.add(std::make_unique<juce::AudioParameterBool>("power_match", "Power Match", false));
+  layout.add(makeUnitParameter("delay", "Delay", 0.0627451f));
+  layout.add(makeUnitParameter("fft_len", "Block Size", 72.0f / 255.0f));
+  layout.add(makeUnitParameter("overlap", "Overlap", 0.35f));
+  layout.add(std::make_unique<juce::AudioParameterBool>("block_sync", "Block Sync", false));
+  layout.add(std::make_unique<juce::AudioParameterBool>("parameter_sync", "Parameter Sync", false));
+
+  for (int slot = 0; slot < 8; ++slot) {
+    const auto slotName = "FX " + juce::String(slot + 1);
+    layout.add(makeUnitParameter(fxParameterID(slot, "freq_a"), slotName + " Frequency A", 0.0f));
+    layout.add(makeUnitParameter(fxParameterID(slot, "freq_b"), slotName + " Frequency B", 1.0f));
+    layout.add(makeUnitParameter(fxParameterID(slot, "amp"), slotName + " Amplitude", 0.6f));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        fxParameterID(slot, "type"), slotName + " Effect", getEffectTypes(), 9));
+    layout.add(makeUnitParameter(fxParameterID(slot, "value"), slotName + " Value", 0.5f));
+  }
+
+  return layout;
+}
+
+juce::String DtBlkFxAudioProcessor::fxParameterID(int slot, const juce::String& parameter)
+{
+  return "fx" + juce::String(slot + 1) + "_" + parameter;
+}
+
+DtBlkFxAudioProcessor::LegacyParameterBlock DtBlkFxAudioProcessor::getLegacyParameterBlock() const
+{
+  const auto readFloat = [this](const juce::String& id) {
+    const auto* value = parameters.getRawParameterValue(id);
+    jassert(value != nullptr);
+    return value != nullptr ? value->load(std::memory_order_relaxed) : 0.0f;
+  };
+  const auto readBool = [&readFloat](const juce::String& id) { return readFloat(id) >= 0.5f; };
+
+  LegacyParameterBlock legacy{};
+  const auto mixBack = juce::jlimit(0.0f, 1.0f, readFloat("mixback"));
+  legacy[0] = readBool("power_match") ? mixBack * 0.5f : 1.0f - mixBack * 0.499f;
+  legacy[1] = readFloat("delay");
+  legacy[2] = readFloat("fft_len");
+
+  const auto overlap = juce::jlimit(0.0f, 1.0f, readFloat("overlap"));
+  legacy[3] = readBool("block_sync") ? juce::jlimit(0.501f, 1.0f, 1.0f - overlap * 0.5f)
+                                     : juce::jlimit(0.0f, 0.499f, overlap * 0.5f);
+
+  for (int slot = 0; slot < 8; ++slot) {
+    const auto offset = static_cast<size_t>(4 + slot * 5);
+    legacy[offset] = readFloat(fxParameterID(slot, "freq_a"));
+    legacy[offset + 1] = readFloat(fxParameterID(slot, "freq_b"));
+    legacy[offset + 2] = readFloat(fxParameterID(slot, "amp"));
+
+    const auto typeIndex =
+        juce::jlimit(0, 30, juce::roundToInt(readFloat(fxParameterID(slot, "type")) * 30.0f));
+    legacy[offset + 3] = static_cast<float>(typeIndex * 8 + 4) / 255.0f;
+    legacy[offset + 4] = readFloat(fxParameterID(slot, "value"));
+  }
+
+  return legacy;
+}
+
 void DtBlkFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-  // Use this method as the place to do any pre-playback
-  // initialisation that you need..
-  juce::ignoreUnused(sampleRate, samplesPerBlock);
+  juce::ignoreUnused(samplesPerBlock);
+  currentSampleRate = sampleRate;
+
+  const auto legacyParameters = getLegacyParameterBlock();
+  const auto fftPlanIndex = getLegacyFftPlanIndex(legacyParameters[2]);
+  if (!engine->prepare(fftPlanIndex, sampleRate)) {
+    juce::Logger::writeToLog("DtBlkFx: failed to prepare FFT engine");
+    setLatencySamples(0);
+    return;
+  }
+
+  engine->reset();
+  const auto parameterSync =
+      parameters.getRawParameterValue("parameter_sync")->load(std::memory_order_relaxed) >= 0.5f;
+  if (!engine->configureLegacyParameters(legacyParameters, sampleRate * 0.5, 0.0, parameterSync)) {
+    juce::Logger::writeToLog("DtBlkFx: failed to initialize parameter interpolation");
+    engine->release();
+    setLatencySamples(0);
+    return;
+  }
+  setLatencySamples(engine->getLatencySamples());
 }
 
 void DtBlkFxAudioProcessor::releaseResources()
 {
-  // When playback stops, you can use this as an opportunity to free up any
-  // spare memory, etc.
+  engine->release();
+  setLatencySamples(0);
 }
 
 bool DtBlkFxAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -125,7 +268,7 @@ bool DtBlkFxAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) c
       layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
     return false;
 
-    // This checks if the input layout matches the output layout
+  // This checks if the input layout matches the output layout
 #  if !JucePlugin_IsSynth
   if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
     return false;
@@ -153,16 +296,43 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
   for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
     buffer.clear(i, 0, buffer.getNumSamples());
 
-  // This is the place where you'd normally do the guts of your plugin's
-  // audio processing...
-  // Make sure to reset the state if your inner loop is processing
-  // the samples and the outer loop is handling the channels.
-  // Alternatively, you can process the samples with the channels
-  // interleaved by keeping the same state.
-  for (int channel = 0; channel < totalNumInputChannels; ++channel) {
-    auto* channelData = buffer.getWritePointer(channel);
-    juce::ignoreUnused(channelData);
-    // ..do something to the data...
+  std::array<float*, 2> channels{};
+  const auto channelCount = juce::jmin(totalNumInputChannels, static_cast<int>(channels.size()));
+  for (int channel = 0; channel < channelCount; ++channel)
+    channels[static_cast<size_t>(channel)] = buffer.getWritePointer(channel);
+
+  const auto legacyParameters = getLegacyParameterBlock();
+  auto tempo = 120.0;
+  auto beatPhaseSamples = 0.0;
+  if (auto* audioPlayHead = getPlayHead()) {
+    juce::AudioPlayHead::CurrentPositionInfo position;
+    position.resetToDefault();
+    if (audioPlayHead->getCurrentPosition(position)) {
+      if (std::isfinite(position.bpm) && position.bpm > 0.0)
+        tempo = position.bpm;
+      if (std::isfinite(position.ppqPosition)) {
+        const auto beatFraction = position.ppqPosition - std::floor(position.ppqPosition);
+        beatPhaseSamples = beatFraction * currentSampleRate * 60.0 / tempo;
+      }
+    }
+  }
+  const auto samplesPerBeat = currentSampleRate * 60.0 / tempo;
+  const auto parameterSync =
+      parameters.getRawParameterValue("parameter_sync")->load(std::memory_order_relaxed) >= 0.5f;
+  if (!engine->configureLegacyParameters(
+          legacyParameters, samplesPerBeat, beatPhaseSamples, parameterSync)) {
+    juce::Logger::writeToLog("DtBlkFx: failed to queue legacy parameter snapshot");
+    buffer.clear();
+    return;
+  }
+
+  if (channelCount != totalNumInputChannels ||
+      !engine->process(channels.data(), channelCount, buffer.getNumSamples())) {
+    buffer.clear();
+    jassertfalse;
+  }
+  else {
+    setLatencySamples(engine->getLatencySamples());
   }
 }
 
@@ -178,17 +348,16 @@ juce::AudioProcessorEditor* DtBlkFxAudioProcessor::createEditor()
 
 void DtBlkFxAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-  // You should use this method to store your parameters in the memory block.
-  // You could do that either as raw data, or use the XML or ValueTree classes
-  // as intermediaries to make it easy to save and load complex data.
-  juce::ignoreUnused(destData);
+  if (const auto xml = parameters.copyState().createXml())
+    copyXmlToBinary(*xml, destData);
 }
 
 void DtBlkFxAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-  // You should use this method to restore your parameters from this memory block,
-  // whose contents will have been created by the getStateInformation() call.
-  juce::ignoreUnused(data, sizeInBytes);
+  if (const auto xml = getXmlFromBinary(data, sizeInBytes)) {
+    if (xml->hasTagName(parameters.state.getType()))
+      parameters.replaceState(juce::ValueTree::fromXml(*xml));
+  }
 }
 
 // This creates new instances of the plugin..

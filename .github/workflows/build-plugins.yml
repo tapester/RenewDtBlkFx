@@ -89,6 +89,11 @@ jobs:
         run: |
           cmake --build build --config Release --parallel
 
+      - name: Run engine tests
+        shell: bash
+        run: |
+          ctest --test-dir build --build-config Release --output-on-failure
+
       - name: Collect VST3 artifacts
         shell: bash
         run: |
@@ -116,3 +121,10 @@ jobs:
           name: DtBlkFx-${{ matrix.name }}-CLAP
           path: artifacts/clap/**
           if-no-files-found: error
+      - name: Validate VST3
+        uses: Tracktion/pluginval/validate@v2
+        with:
+          plugins: |
+            build/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3
+          strictness-level: 5
+          args: --skip-gui-tests

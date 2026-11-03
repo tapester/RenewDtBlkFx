@@ -90,7 +90,32 @@ add_subdirectory(
 # External dependencies
 # ==============================================================================
 
-find_package(FFTW3 CONFIG REQUIRED)
+find_package(FFTW3f CONFIG REQUIRED)
+
+# ==============================================================================
+# Legacy DSP engine foundation
+# ==============================================================================
+
+add_library(DtBlkFxEngine STATIC
+    src/DtBlkFxEngine.cpp
+    src/DtBlkFxSweepTables.cpp
+)
+
+target_include_directories(DtBlkFxEngine PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+
+target_compile_features(DtBlkFxEngine PUBLIC cxx_std_17)
+target_link_libraries(DtBlkFxEngine PUBLIC FFTW3::fftw3f)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(DtBlkFxEngineTests
+        tests/DtBlkFxEngineTests.cpp
+    )
+    target_link_libraries(DtBlkFxEngineTests PRIVATE DtBlkFxEngine)
+    add_test(NAME DtBlkFxEngineTests COMMAND DtBlkFxEngineTests)
+endif()
 
 # ==============================================================================
 # Plugin definition
@@ -134,6 +159,7 @@ clap_juce_extensions_plugin(
     # Replace this with a permanent, globally unique reverse-domain ID
     # controlled by the plugin publisher.
     CLAP_ID "com.tapester.dtblkfx"
+    CLAP_FEATURES audio-effect filter frequency-shifter glitch
 )
 
 # ==============================================================================
@@ -174,7 +200,7 @@ target_link_libraries(DtBlkFx PRIVATE
     juce::juce_recommended_warning_flags
     juce::juce_recommended_lto_flags
 
-    FFTW3::fftw3
+    DtBlkFxEngine
 )
 
 # ==============================================================================

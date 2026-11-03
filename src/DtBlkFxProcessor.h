@@ -21,10 +21,22 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
+#include <memory>
+
+class DtBlkFxEngine;
+
 class DtBlkFxAudioProcessor : public juce::AudioProcessor {
 public:
+  using LegacyParameterBlock = std::array<float, 44>;
+
   DtBlkFxAudioProcessor();
   ~DtBlkFxAudioProcessor() override;
+
+  juce::AudioProcessorValueTreeState parameters;
+
+  static juce::String fxParameterID(int slot, const juce::String& parameter);
+  LegacyParameterBlock getLegacyParameterBlock() const;
 
   void prepareToPlay(double sampleRate, int samplesPerBlock) override;
   void releaseResources() override;
@@ -54,5 +66,10 @@ public:
   void setStateInformation(const void* data, int sizeInBytes) override;
 
 private:
+  static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+  std::unique_ptr<DtBlkFxEngine> engine;
+  double currentSampleRate = 44100.0;
+
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DtBlkFxAudioProcessor)
 };
