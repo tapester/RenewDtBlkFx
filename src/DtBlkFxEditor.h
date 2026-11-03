@@ -35,9 +35,10 @@ public:
 private:
   using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
   using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
-  using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+  using ParameterAttachment = juce::ParameterAttachment;
 
   void configureSlider(juce::Slider&, juce::Label&, const juce::String&);
+  void updateEffectControls(size_t slot);
 
   DtBlkFxAudioProcessor& processorRef;
   juce::Viewport viewport;
@@ -46,15 +47,18 @@ private:
   juce::GroupComponent globalGroup;
   std::array<juce::Slider, 4> globalSliders;
   std::array<juce::Label, 4> globalLabels;
-  std::array<juce::ToggleButton, 3> globalToggles;
+  juce::Label powerModeLabel;
+  juce::ComboBox powerMode;
+  std::array<juce::ToggleButton, 2> globalToggles;
   std::array<juce::GroupComponent, 8> effectGroups;
   std::array<juce::ComboBox, 8> effectTypes;
   std::array<std::array<juce::Slider, 4>, 8> effectSliders;
   std::array<std::array<juce::Label, 4>, 8> effectLabels;
   // Keep each UI control bound to its matching host parameter for automation and state restore.
   std::array<std::unique_ptr<SliderAttachment>, 4> globalSliderAttachments;
-  std::array<std::unique_ptr<ButtonAttachment>, 3> globalButtonAttachments;
-  std::array<std::unique_ptr<ComboBoxAttachment>, 8> effectTypeAttachments;
+  std::array<std::unique_ptr<ButtonAttachment>, 2> globalButtonAttachments;
+  std::unique_ptr<ParameterAttachment> powerModeAttachment;
+  std::array<std::unique_ptr<ParameterAttachment>, 8> effectTypeAttachments;
   std::array<std::array<std::unique_ptr<SliderAttachment>, 4>, 8> effectSliderAttachments;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DtBlkFxAudioProcessorEditor)

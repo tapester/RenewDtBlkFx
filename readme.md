@@ -81,7 +81,9 @@ effects in this way allows you to make completely new and surprising sounds.
 
 The current JUCE editor exposes the global controls and eight effect slots
 with attached sliders, toggles, and populated effect selectors; controls are
-host-automatable and save their values with the plugin state. The
+host-automatable and save their values with the plugin state. Value readouts
+show frequency, gain/mix, delay, block-size, and effect-specific units; labels
+and unused controls follow the selected effect. The
 processor now runs FFT frames through an overlap scheduler with legacy hop
 calculation, linear block crossfades, host-beat block sync, and delay-unit
 conversion (using 120 BPM when host tempo is unavailable). For short delays it
