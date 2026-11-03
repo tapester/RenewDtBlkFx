@@ -62,6 +62,7 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
     effectGroups[slot].setText("Effect Slot " + juce::String(static_cast<int>(slot + 1)));
     content.addAndMakeVisible(effectGroups[slot]);
 
+    effectTypes[slot].addItemList(DtBlkFxAudioProcessor::effectTypeNames(), 1);
     content.addAndMakeVisible(effectTypes[slot]);
     effectTypeAttachments[slot] = std::make_unique<ComboBoxAttachment>(
         processorRef.parameters,

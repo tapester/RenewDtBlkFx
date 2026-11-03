@@ -12,12 +12,35 @@ cmake --preset windows-x64
 cmake --build --preset windows-x64 --parallel
 ```
 
+On Windows, the build stages `fftw3f.dll` beside each plugin binary. When
+installing the VST3 manually, copy the complete `DtBlkFx.vst3` bundle (including
+`Contents/x86_64-win/fftw3f.dll`) into the VST3 folder; do not copy only
+`DtBlkFx.vst3`. Windows also needs the Microsoft Visual C++ 2015-2022
+Redistributable for the matching architecture.
+
+To build a Windows variant with FFTW statically linked into the plugin instead,
+use the separate static-FFTW preset:
+
+```
+cmake --preset windows-x64-static-fftw
+cmake --build --preset windows-x64-static-fftw --parallel
+```
+
+Its plugin is output under `build/windows-x64-static-fftw`; the existing
+`windows-x64` preset continues to build the dynamic-FFTW variant. The static
+variant does not require `fftw3f.dll`, but still requires the Microsoft Visual
+C++ 2015-2022 Redistributable.
+
 MacOS Silicon with Bash:
 
 ```
 cmake --preset macos-arm64
 cmake --build --preset macos-arm64 --parallel
 ```
+
+## Legacy Code
+
+Is available in the legacy branch: https://github.com/tapester/RenewDtBlkFx/tree/legacy
 
 ## Usage examples
 
@@ -56,8 +79,9 @@ effects in this way allows you to make completely new and surprising sounds.
 
 ## JUCE migration status
 
-The current JUCE editor exposes global controls and eight effect slots as
-host-automatable parameters, and saves their values with the plugin state. The
+The current JUCE editor exposes the global controls and eight effect slots
+with attached sliders, toggles, and populated effect selectors; controls are
+host-automatable and save their values with the plugin state. The
 processor now runs FFT frames through an overlap scheduler with legacy hop
 calculation, linear block crossfades, host-beat block sync, and delay-unit
 conversion (using 120 BPM when host tempo is unavailable). For short delays it
@@ -73,13 +97,13 @@ AutoHarmMask, AutoSubharm1–3Mask, ThreshMask, Vocode, HarmMatch L>R/R>L,
 CrossMix, and WarpMix are implemented. The legacy `None` choices remain
 bypasses. Mask effects now select harmonic or threshold ranges for the next
 effect slot. Stereo effects operate on both channel spectra and deliver a
-shared processed spectrum. The frequency remappers currently use linear
-interpolation between FFT bins rather than the legacy five-bin
-fractional-shift kernel. Fundamental tracking and stereo effect algorithms
-still need comparison against legacy reference renders; in particular, the
-WarpMix implementation is an approximation. The live spectrogram has not yet
-been ported. A standalone single-precision FFT workspace provides all legacy
-FFT sizes and a 44-value parameter snapshot.
+shared processed spectrum. The frequency remappers use a normalized five-bin
+Lagrange interpolation kernel for fractional FFT-bin shifts; this is not yet
+verified against the legacy kernel. Fundamental tracking and stereo effect
+algorithms still need comparison against legacy reference renders; in
+particular, the WarpMix implementation is an approximation. The live
+spectrogram has not yet been ported. A standalone single-precision FFT
+workspace provides all legacy FFT sizes and a 44-value parameter snapshot.
 
 ## Suggested tests
 
@@ -168,14 +192,16 @@ output parity.
    sample-accurate. Add event-offset handling only if a supported JUCE format
    path exposes those timestamps.
 2. **Compare and refine spectral effects:** render the legacy plugin and JUCE
-   port with identical inputs and parameters. Refine the frequency-remapping
-   kernel, fundamental tracking, Shift's low-frequency peak alignment, mask
+   port with identical inputs and parameters. Verify the five-bin
+   frequency-remapping kernel against legacy renders, refine fundamental
+   tracking and Shift's low-frequency peak alignment, mask
    boundaries, Sweep interpolation, and stereo effect behavior. WarpMix needs
    a closer port of the legacy curve-warping algorithm. No legacy reference
    renders are currently included.
-3. **Restore visualization and GUI behavior:** publish input/output spectra
-   safely to the editor, implement the live spectrogram, and connect effect
-   controls to the corresponding legacy value ranges and interactions.
+3. **Restore visualization and GUI behavior:** smoke-test the parameter-bound
+   editor in VST3 and CLAP hosts, then publish input/output spectra safely to
+   the editor, implement the live spectrogram, and refine effect controls to
+   show the corresponding legacy value ranges and interactions.
 4. **Complete compatibility and real-time validation:** verify preset/state
    migration, automation and transport changes, sample-rate/channel layouts,
    callback allocation/locking behavior, and latency/tail reporting. Expand

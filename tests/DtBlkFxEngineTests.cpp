@@ -686,6 +686,35 @@ float measureToneAmplitude(const std::vector<float>& signal, int bin, int start,
   return static_cast<float>(2.0 * std::hypot(sineProjection, cosineProjection) / fftSize);
 }
 
+bool renderFractionallyShiftedTone(std::vector<float>& output)
+{
+  constexpr int fftSize = 256;
+  constexpr int sampleCount = fftSize * 8;
+  constexpr int sourceBin = 8;
+  constexpr double sampleRate = 44100.0;
+  constexpr float pi = 3.14159265358979323846f;
+  DtBlkFxEngine engine;
+  if (!engine.prepare(0, sampleRate))
+    return false;
+
+  const auto halfBinShiftValue = 0.5f + static_cast<float>(std::log2(17.0 / 16.0) / 6.0);
+  std::array<DtBlkFxEngine::EffectParameters, 8> effects{};
+  effects[0] = {7,
+                frequencyParameterForBin(4, fftSize, sampleRate),
+                frequencyParameterForBin(12, fftSize, sampleRate),
+                0.6f,
+                halfBinShiftValue};
+  engine.configureEffects(effects, 0.0f, false);
+
+  output.resize(sampleCount);
+  for (int sample = 0; sample < sampleCount; ++sample)
+    output[static_cast<size_t>(sample)] =
+        std::sin(2.0f * pi * sourceBin * sample / fftSize);
+
+  auto* channel = output.data();
+  return engine.process(&channel, 1, sampleCount);
+}
+
 bool renderMaskedFilter(int maskType, float maskValue, std::vector<float>& output)
 {
   constexpr int fftSize = 256;
@@ -744,6 +773,28 @@ bool testFrequencyMasks()
     std::cerr << "Frequency mask mismatch: harmonic(" << harmonicSelected << ", "
               << harmonicUnselected << "), threshold(" << thresholdUnselected << ", "
               << thresholdSelected << ")\n";
+    return false;
+  }
+  return true;
+}
+
+bool testFractionalBinRemapping()
+{
+  std::vector<float> shifted;
+  if (!renderFractionallyShiftedTone(shifted)) {
+    std::cerr << "Fractional-bin frequency remapping failed\n";
+    return false;
+  }
+
+  constexpr int latency = 255;
+  constexpr int measurementStart = latency + 512;
+  const auto lowerBin = measureToneAmplitude(shifted, 8, measurementStart, latency);
+  const auto upperBin = measureToneAmplitude(shifted, 9, measurementStart, latency);
+  const auto lowerSideLobe = measureToneAmplitude(shifted, 7, measurementStart, latency);
+  const auto upperSideLobe = measureToneAmplitude(shifted, 10, measurementStart, latency);
+  if (lowerBin < 0.3f || upperBin < 0.3f || std::max(lowerSideLobe, upperSideLobe) < 0.02f) {
+    std::cerr << "Half-bin shift did not produce the expected five-bin interpolation: " << lowerBin
+              << ", " << upperBin << ", " << lowerSideLobe << ", " << upperSideLobe << '\n';
     return false;
   }
   return true;
@@ -1137,6 +1188,7 @@ int main()
   passed &= testThresholdEffect();
   passed &= testClipEffect();
   passed &= testFrequencyMappingEffects();
+  passed &= testFractionalBinRemapping();
   passed &= testHarmonicEffects();
   passed &= testSweepEffects();
   passed &= testStereoEffects();

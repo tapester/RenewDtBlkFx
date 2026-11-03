@@ -14,6 +14,17 @@
       }
     },
     {
+      "name": "windows-x64-static-fftw",
+      "displayName": "Windows x64 - Ninja Release (Static FFTW)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-x64-static-fftw",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+      }
+    },
+    {
       "name": "macos-arm64",
       "displayName": "macOS Apple Silicon - Ninja Release",
       "generator": "Ninja",
@@ -42,6 +53,10 @@
     {
       "name": "windows-x64",
       "configurePreset": "windows-x64"
+    },
+    {
+      "name": "windows-x64-static-fftw",
+      "configurePreset": "windows-x64-static-fftw"
     },
     {
       "name": "macos-arm64",

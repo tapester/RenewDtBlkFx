@@ -162,6 +162,18 @@ clap_juce_extensions_plugin(
     CLAP_FEATURES audio-effect filter frequency-shifter glitch
 )
 
+if(WIN32 AND VCPKG_TARGET_TRIPLET STREQUAL "x64-windows")
+    foreach(plugin_target IN ITEMS DtBlkFx_VST3 DtBlkFx_CLAP)
+        add_custom_command(TARGET ${plugin_target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:FFTW3::fftw3f>"
+                "$<TARGET_FILE_DIR:${plugin_target}>"
+            COMMENT "Staging FFTW runtime for ${plugin_target}"
+            VERBATIM
+        )
+    endforeach()
+endif()
+
 # ==============================================================================
 # Plugin source files
 # ==============================================================================

@@ -24,9 +24,25 @@
 #include <cmath>
 
 namespace {
-// Choice order is part of the conversion to legacy effect type codes below.
-const juce::StringArray& getEffectTypes()
+std::unique_ptr<juce::AudioParameterFloat>
+makeUnitParameter(const juce::String& id, const juce::String& name, float defaultValue)
 {
+  return std::make_unique<juce::AudioParameterFloat>(
+      id, name, juce::NormalisableRange<float>{0.0f, 1.0f, 0.001f}, defaultValue);
+}
+
+int getLegacyFftPlanIndex(float parameter)
+{
+  return juce::jlimit(0,
+                      DtBlkFxEngine::fftSizeCount - 1,
+                      static_cast<int>(parameter * 255.0f / 4.0f - 1.5f));
+}
+
+} // namespace
+
+const juce::StringArray& DtBlkFxAudioProcessor::effectTypeNames()
+{
+  // Keep the choice order aligned with the legacy effect codes.
   static const juce::StringArray effectTypes{"Filter",
                                              "Contrast",
                                              "Smear",
@@ -60,22 +76,6 @@ const juce::StringArray& getEffectTypes()
                                              "WarpMix"};
   return effectTypes;
 }
-
-std::unique_ptr<juce::AudioParameterFloat>
-makeUnitParameter(const juce::String& id, const juce::String& name, float defaultValue)
-{
-  return std::make_unique<juce::AudioParameterFloat>(
-      id, name, juce::NormalisableRange<float>{0.0f, 1.0f, 0.001f}, defaultValue);
-}
-
-int getLegacyFftPlanIndex(float parameter)
-{
-  return juce::jlimit(0,
-                      DtBlkFxEngine::fftSizeCount - 1,
-                      static_cast<int>(parameter * 255.0f / 4.0f - 1.5f));
-}
-
-} // namespace
 
 DtBlkFxAudioProcessor::DtBlkFxAudioProcessor()
     : AudioProcessor(BusesProperties()
@@ -178,7 +178,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout DtBlkFxAudioProcessor::creat
     layout.add(makeUnitParameter(fxParameterID(slot, "freq_b"), slotName + " Frequency B", 1.0f));
     layout.add(makeUnitParameter(fxParameterID(slot, "amp"), slotName + " Amplitude", 0.6f));
     layout.add(std::make_unique<juce::AudioParameterChoice>(
-        fxParameterID(slot, "type"), slotName + " Effect", getEffectTypes(), 9));
+        fxParameterID(slot, "type"), slotName + " Effect", effectTypeNames(), 9));
     layout.add(makeUnitParameter(fxParameterID(slot, "value"), slotName + " Value", 0.5f));
   }
 

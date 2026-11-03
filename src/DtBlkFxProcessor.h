@@ -37,6 +37,7 @@ public:
 
   // Translate the stable host-facing parameter IDs into the engine's legacy 44-value layout.
   static juce::String fxParameterID(int slot, const juce::String& parameter);
+  static const juce::StringArray& effectTypeNames();
   LegacyParameterBlock getLegacyParameterBlock() const;
 
   void prepareToPlay(double sampleRate, int samplesPerBlock) override;

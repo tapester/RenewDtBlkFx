@@ -1304,8 +1304,27 @@ void DtBlkFxEngine::remapFrequencies(const EffectParameters& effect,
       if (destination < 0.0f || destination > static_cast<float>(binCount - 1))
         continue;
 
-      const auto lowerDestination = static_cast<int>(std::floor(destination));
-      const auto fraction = destination - static_cast<float>(lowerDestination);
+      const auto centerDestination = static_cast<int>(std::floor(destination + 0.5f));
+      const auto fractionalOffset = destination - static_cast<float>(centerDestination);
+      constexpr int kernelRadius = 2;
+      std::array<float, kernelRadius * 2 + 1> kernelWeights{};
+      auto kernelSum = 0.0f;
+      for (int tap = -kernelRadius; tap <= kernelRadius; ++tap) {
+        const auto tapDestination = centerDestination + tap;
+        auto weight = 1.0f;
+        for (int otherTap = -kernelRadius; otherTap <= kernelRadius; ++otherTap) {
+          if (otherTap == tap)
+            continue;
+          weight *= (fractionalOffset - static_cast<float>(otherTap)) /
+                    static_cast<float>(tap - otherTap);
+        }
+        kernelWeights[static_cast<size_t>(tap + kernelRadius)] = weight;
+        if (tapDestination >= 0 && tapDestination < binCount)
+          kernelSum += weight;
+      }
+      if (std::abs(kernelSum) < 1.0e-6f)
+        continue;
+
       const auto& source = remapSource[static_cast<size_t>(sourceBin)];
       const auto sourceImaginary = conjugate ? -source.imaginary : source.imaginary;
       const auto binShift = static_cast<double>(destination) - sourceBin;
@@ -1316,14 +1335,15 @@ void DtBlkFxEngine::remapFrequencies(const EffectParameters& effect,
       const auto shiftedReal = gain * (source.real * phaseReal - sourceImaginary * phaseImaginary);
       const auto shiftedImaginary =
           gain * (source.real * phaseImaginary + sourceImaginary * phaseReal);
-      const auto lowerWeight = 1.0f - fraction;
-      auto& lower = remapAccumulator[static_cast<size_t>(lowerDestination)];
-      lower.real += shiftedReal * lowerWeight;
-      lower.imaginary += shiftedImaginary * lowerWeight;
-      if (fraction > 0.0f && lowerDestination + 1 < binCount) {
-        auto& upper = remapAccumulator[static_cast<size_t>(lowerDestination + 1)];
-        upper.real += shiftedReal * fraction;
-        upper.imaginary += shiftedImaginary * fraction;
+      for (int tap = -kernelRadius; tap <= kernelRadius; ++tap) {
+        const auto tapDestination = centerDestination + tap;
+        if (tapDestination < 0 || tapDestination >= binCount)
+          continue;
+
+        const auto weight = kernelWeights[static_cast<size_t>(tap + kernelRadius)] / kernelSum;
+        auto& destinationBin = remapAccumulator[static_cast<size_t>(tapDestination)];
+        destinationBin.real += shiftedReal * weight;
+        destinationBin.imaginary += shiftedImaginary * weight;
       }
     }
     rangeStart = -1;
