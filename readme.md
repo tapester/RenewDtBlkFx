@@ -5,38 +5,31 @@ DtBlkFx is a Fast-Fourier-Transform (FFT) based VST plug-in.
 Forked from https://codeberg.org/skullzy/DtBlkFx
 
 ## Build using CMake
-Windows with Powershell:
+Windows with PowerShell, from a Developer PowerShell for VS 2022:
 
-```powershell
+```
 cmake --preset windows-x64
 cmake --build --preset windows-x64 --parallel
+ctest --test-dir build/windows-x64 --output-on-failure
 ```
 
-On Windows, the build stages `fftw3f.dll` beside each plugin binary. When
-installing the VST3 manually, copy the complete `DtBlkFx.vst3` bundle (including
-`Contents/x86_64-win/fftw3f.dll`) into the VST3 folder; do not copy only
-`DtBlkFx.vst3`. Windows also needs the Microsoft Visual C++ 2015-2022
-Redistributable for the matching architecture.
+This is the default Windows build. FFTW is statically linked into the plugin, so no
+`fftw3f.dll` has to be installed next to it. The plugin still needs the Microsoft Visual C++
+2015-2022 Redistributable for the matching architecture.
 
-To build a Windows variant with FFTW statically linked into the plugin instead,
-use the separate static-FFTW preset:
+A variant that links FFTW dynamically is available as a separate preset:
 
-```powershell
-cmake --preset windows-x64-static-fftw
-cmake --build --preset windows-x64-static-fftw --parallel
+```
+cmake --preset windows-x64-dynamic-fftw
+cmake --build --preset windows-x64-dynamic-fftw --parallel
 ```
 
-Its plugin is output under `build/windows-x64-static-fftw`; the existing
-`windows-x64` preset continues to build the dynamic-FFTW variant. The static
-variant does not require `fftw3f.dll`, but still requires the Microsoft Visual
-C++ 2015-2022 Redistributable.
+Its plugin is output under `build/windows-x64-dynamic-fftw`, and `fftw3f.dll` is staged
+beside each plugin binary. When installing that variant manually, copy the complete
+`DtBlkFx.vst3` bundle (including `Contents/x86_64-win/fftw3f.dll`) into the VST3 folder.
+Some hosts, including pluginval, do not search the plugin folder for dependent DLLs and
+will fail to load this variant. Prefer the default static build.
 
-MacOS Silicon with Bash:
-
-```powershell
-cmake --preset macos-arm64
-cmake --build --preset macos-arm64 --parallel
-```
 
 ## Legacy Code
 

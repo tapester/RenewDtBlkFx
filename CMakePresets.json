@@ -1,27 +1,26 @@
-
 {
   "version": 3,
   "configurePresets": [
     {
       "name": "windows-x64",
-      "displayName": "Windows x64 - Ninja Release",
+      "displayName": "Windows x64 - Ninja Release (static FFTW, default)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/windows-x64",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
       }
     },
     {
-      "name": "windows-x64-static-fftw",
-      "displayName": "Windows x64 - Ninja Release (Static FFTW)",
+      "name": "windows-x64-dynamic-fftw",
+      "displayName": "Windows x64 - Ninja Release (dynamic FFTW, needs fftw3f.dll)",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/windows-x64-static-fftw",
+      "binaryDir": "${sourceDir}/build/windows-x64-dynamic-fftw",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
     },
     {
@@ -55,8 +54,8 @@
       "configurePreset": "windows-x64"
     },
     {
-      "name": "windows-x64-static-fftw",
-      "configurePreset": "windows-x64-static-fftw"
+      "name": "windows-x64-dynamic-fftw",
+      "configurePreset": "windows-x64-dynamic-fftw"
     },
     {
       "name": "macos-arm64",

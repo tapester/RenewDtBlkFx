@@ -22,7 +22,7 @@ jobs:
         include:
           - name: windows
             os: windows-latest
-            triplet: x64-windows
+            triplet: x64-windows-static-md
             generator: "Visual Studio 17 2022"
             cmake_extra: ""
           - name: macos
@@ -64,7 +64,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "$env:GITHUB_WORKSPACE\modules\vcpkg\vcpkg.exe" install fftw3:x64-windows
+          & "$env:GITHUB_WORKSPACE\modules\vcpkg\vcpkg.exe" install fftw3:${{ matrix.triplet }}
 
       - name: Bootstrap vcpkg (macOS)
         if: runner.os != 'Windows'
@@ -101,6 +101,27 @@ jobs:
         shell: bash
         run: |
           cmake --build build --config Release --parallel
+
+      - name: Verify plugin has no FFTW runtime dependency (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The plugin must be self-contained: hosts such as pluginval do not search the
+          # plugin folder for dependent DLLs, so a dynamic FFTW makes the plugin fail to load.
+          $bundle = "build/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
+          $binary = Join-Path $bundle "Contents/x86_64-win/DtBlkFx.vst3"
+          if (-not (Test-Path $binary)) {
+            throw "Plugin binary not found: $binary"
+          }
+          $dependents = dumpbin /dependents $binary | Out-String
+          Write-Host $dependents
+          if ($dependents -match "(?i)fftw") {
+            throw "Plugin still imports an FFTW DLL. Use the x64-windows-static-md triplet."
+          }
+          $strayDll = Get-ChildItem -Path $bundle -Recurse -Filter "fftw*.dll" -ErrorAction SilentlyContinue
+          if ($strayDll) {
+            throw "Unexpected FFTW DLL inside the VST3 bundle: $($strayDll.FullName)"
+          }
 
       - name: Run engine tests
         shell: bash
