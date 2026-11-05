@@ -20,6 +20,8 @@
 #include "DtBlkFxProcessor.h"
 #include "DtBlkFxEditor.h"
 #include "DtBlkFxEngine.h"
+#include "DtBlkFxLegacyMapping.h"
+
 
 #include <cmath>
 
@@ -216,10 +218,10 @@ DtBlkFxAudioProcessor::LegacyParameterBlock DtBlkFxAudioProcessor::getLegacyPara
     legacy[offset + 1] = readFloat(fxParameterID(slot, "freq_b"));
     legacy[offset + 2] = readFloat(fxParameterID(slot, "amp"));
 
-    const auto typeIndex =
-        juce::jlimit(0, 30, juce::roundToInt(readFloat(fxParameterID(slot, "type")) * 30.0f));
-    legacy[offset + 3] = static_cast<float>(typeIndex * 8 + 4) / 255.0f;
-    legacy[offset + 4] = readFloat(fxParameterID(slot, "value"));
+    // getRawParameterValue() returns the un-normalised value, which for a choice parameter
+    // is already the choice index (0..30). Do not rescale it.
+    const auto typeIndex = juce::roundToInt(readFloat(fxParameterID(slot, "type")));
+    legacy[offset + 3] = DtBlkFxLegacy::effectTypeToLegacyValue(typeIndex);
   }
 
   return legacy;

@@ -19,6 +19,7 @@
 
 #include "DtBlkFxEngine.h"
 #include "DtBlkFxSweepTables.h"
+#include "DtBlkFxLegacyMapping.h"
 
 #include <fftw3.h>
 
@@ -640,7 +641,7 @@ void DtBlkFxEngine::updateFrameParameters(size_t frameStart) noexcept
     effect.frequencyA = current[offset];
     effect.frequencyB = current[offset + 1];
     effect.amplitude = current[offset + 2];
-    effect.type = static_cast<int>(current[offset + 3] * 255.0f) / 8;
+    effect.type = DtBlkFxLegacy::legacyValueToEffectType(current[offset + 3]);
     effect.value = current[offset + 4];
   }
 

@@ -1,4 +1,5 @@
 #include "DtBlkFxEngine.h"
+#include "DtBlkFxLegacyMapping.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1115,6 +1116,41 @@ bool testSweepEffects()
 }
 } // namespace
 
+static bool testEffectTypeLegacyMapping()
+{
+  bool passed = true;
+  float previous = -1.0f;
+
+  for (int index = 0; index < DtBlkFxLegacy::effectTypeCount; ++index) {
+    const auto legacy = DtBlkFxLegacy::effectTypeToLegacyValue(index);
+    const auto decoded = DtBlkFxLegacy::legacyValueToEffectType(legacy);
+
+    if (decoded != index) {
+      std::cerr << "Effect type " << index << " decoded as " << decoded << '\n';
+      passed = false;
+    }
+    if (legacy < 0.0f || legacy > 1.0f || legacy <= previous) {
+      std::cerr << "Effect type " << index << " encoded to an invalid or non-increasing value "
+                << legacy << '\n';
+      passed = false;
+    }
+    previous = legacy;
+  }
+
+  // Out-of-range indices must clamp to the first and last effect rather than wrap or overflow.
+  if (DtBlkFxLegacy::legacyValueToEffectType(DtBlkFxLegacy::effectTypeToLegacyValue(-5)) != 0) {
+    std::cerr << "Negative effect index did not clamp to 0\n";
+    passed = false;
+  }
+  if (DtBlkFxLegacy::legacyValueToEffectType(DtBlkFxLegacy::effectTypeToLegacyValue(99)) !=
+      DtBlkFxLegacy::effectTypeCount - 1) {
+    std::cerr << "Oversized effect index did not clamp to the last effect\n";
+    passed = false;
+  }
+  return passed;
+}
+
+
 int main()
 {
   DtBlkFxEngine engine;
@@ -1192,5 +1228,6 @@ int main()
   passed &= testHarmonicEffects();
   passed &= testSweepEffects();
   passed &= testStereoEffects();
+  passed &= testEffectTypeLegacyMapping();
   return passed ? 0 : 1;
 }
