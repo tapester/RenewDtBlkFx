@@ -287,6 +287,7 @@ void DtBlkFxEngine::reset() noexcept
   useLegacyParameterTimeline = false;
   parameterSyncEnabled = false;
   latestParameterInput = {};
+  smearRandomState = 1; // new: makes smear repeatable after a reset
   setFftSize(requestedFftSize);
   std::fill(effectMask.begin(), effectMask.end(), 1);
   updateTimeWindow();
@@ -1527,14 +1528,17 @@ void DtBlkFxEngine::applySweep(const EffectParameters& effect) noexcept
         if (lastBin < firstBin)
           continue;
 
-        const auto copyGain = std::sqrt(std::max(0.0, targetPower));
+        // The copy gain is a spectrum amplitude. The legacy plugin worked on a spectrum
+        // normalised by 1/fftSize, so divide here to get the same output level.
+        const auto copyGain =
+            std::sqrt(std::max(0.0, targetPower)) / static_cast<double>(fftSize);
         for (auto bin = firstBin; bin <= lastBin; ++bin) {
           if (!isEffectBinSelected(bin))
             continue;
           const auto source = bins[static_cast<size_t>(bin + sourceOffset)];
           auto& destination = bins[static_cast<size_t>(bin)];
-          destination.real =
-              destination.real * originalGain + source.real * static_cast<float>(copyGain);
+          destination.real = destination.real * originalGain +
+                             source.real * static_cast<float>(copyGain);
           destination.imaginary = destination.imaginary * originalGain +
                                   source.imaginary * static_cast<float>(copyGain);
         }
