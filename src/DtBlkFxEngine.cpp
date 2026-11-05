@@ -725,8 +725,14 @@ bool DtBlkFxEngine::appendParameterEvent(const LegacyParameters& parameters) noe
 
   if (parameterEventCount == parameterEventCapacity)
     pruneParameterEvents();
-  if (parameterEventCount == parameterEventCapacity)
-    return false;
+  if (parameterEventCount == parameterEventCapacity) {
+    // The queue is still full: a very long frame with parameters changing every few samples.
+    // Fold this update into the newest event instead of rejecting it, so the latest values are
+    // never lost and the audio block is not dropped.
+    const auto newestIndex = (parameterEventHead + parameterEventCount - 1) % parameterEventCapacity;
+    parameterEvents[newestIndex].values = parameters;
+    return true;
+  }
 
   const auto eventIndex = (parameterEventHead + parameterEventCount) % parameterEventCapacity;
   auto& event = parameterEvents[eventIndex];

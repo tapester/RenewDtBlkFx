@@ -29,8 +29,9 @@ namespace {
 std::unique_ptr<juce::AudioParameterFloat>
 makeUnitParameter(const juce::String& id, const juce::String& name, float defaultValue)
 {
+  // 0.0001 keeps legacy preset values (up to 4 decimals) within about 0.6 cents.
   return std::make_unique<juce::AudioParameterFloat>(
-      id, name, juce::NormalisableRange<float>{0.0f, 1.0f, 0.001f}, defaultValue);
+      id, name, juce::NormalisableRange<float>{0.0f, 1.0f, 0.0001f}, defaultValue);
 }
 
 int getLegacyFftPlanIndex(float parameter)
@@ -197,7 +198,11 @@ DtBlkFxAudioProcessor::LegacyParameterBlock DtBlkFxAudioProcessor::getLegacyPara
   const auto readFloat = [this](const juce::String& id) {
     const auto* value = parameters.getRawParameterValue(id);
     jassert(value != nullptr);
-    return value != nullptr ? value->load(std::memory_order_relaxed) : 0.0f;
+    if (value == nullptr)
+      return 0.0f;
+    // A damaged state can leave a non-finite value in a parameter; never pass it on.
+    const auto current = value->load(std::memory_order_relaxed);
+    return std::isfinite(current) ? current : 0.0f;
   };
   const auto readBool = [&readFloat](const juce::String& id) { return readFloat(id) >= 0.5f; };
 
@@ -364,8 +369,22 @@ void DtBlkFxAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 void DtBlkFxAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
   if (const auto xml = getXmlFromBinary(data, sizeInBytes)) {
-    if (xml->hasTagName(parameters.state.getType()))
+    if (xml->hasTagName(parameters.state.getType())) {
       parameters.replaceState(juce::ValueTree::fromXml(*xml));
+
+      // A damaged or hand-edited state can contain text such as "nan". JUCE parses it into a
+      // non-finite value that its range clamping does not catch, so put such parameters back
+      // to their defaults.
+      for (auto* parameter : getParameters()) {
+        auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter);
+        if (ranged == nullptr)
+          continue;
+        const juce::String id = ranged->paramID;
+        const auto* raw = parameters.getRawParameterValue(id);
+        if (raw != nullptr && !std::isfinite(raw->load()))
+          ranged->setValueNotifyingHost(ranged->getDefaultValue());
+      }
+    }
   }
 }
 
