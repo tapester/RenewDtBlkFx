@@ -114,6 +114,15 @@ if(BUILD_TESTING)
     )
     target_link_libraries(DtBlkFxEngineTests PRIVATE DtBlkFxEngine)
     add_test(NAME DtBlkFxEngineTests COMMAND DtBlkFxEngineTests)
+
+    # Robustness tests: all effects, FFT sizes, sample rates, block sizes, reset, API misuse.
+    # These are slow in Debug builds; the presets build Release.
+    add_executable(DtBlkFxRobustnessTests
+        tests/DtBlkFxRobustnessTests.cpp
+    )
+    target_link_libraries(DtBlkFxRobustnessTests PRIVATE DtBlkFxEngine)
+    add_test(NAME DtBlkFxRobustnessTests COMMAND DtBlkFxRobustnessTests)
+    set_tests_properties(DtBlkFxRobustnessTests PROPERTIES TIMEOUT 900)
 endif()
 
 # ==============================================================================
@@ -271,7 +280,7 @@ message(STATUS "VST3:          Enabled")
 message(STATUS "CLAP:          Enabled")
 message(STATUS "FFTW3:         Required")
 if(BUILD_TESTING)
-    message(STATUS "Tests:         Engine tests + processor tests")
+    message(STATUS "Tests:         Engine + robustness + processor")
 else()
     message(STATUS "Tests:         Disabled (BUILD_TESTING is off)")
 endif()
