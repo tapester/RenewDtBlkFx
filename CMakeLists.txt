@@ -1,4 +1,3 @@
-
 # ==============================================================================
 # RenewDtBlkFx
 # Cross-platform JUCE audio plugin
@@ -216,6 +215,47 @@ target_link_libraries(DtBlkFx PRIVATE
 )
 
 # ==============================================================================
+# Processor tests (link JUCE and the real processor, unlike the engine tests)
+# ==============================================================================
+
+if(BUILD_TESTING)
+    juce_add_console_app(DtBlkFxProcessorTests
+        PRODUCT_NAME "DtBlkFxProcessorTests"
+    )
+
+    # The processor is compiled again here so the tests do not depend on plugin packaging.
+    target_sources(DtBlkFxProcessorTests PRIVATE
+        tests/DtBlkFxProcessorTests.cpp
+        src/DtBlkFxProcessor.cpp
+        src/DtBlkFxEditor.cpp
+    )
+
+    target_include_directories(DtBlkFxProcessorTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+
+    # These come from juce_add_plugin for the real plugin; supply them for the test build.
+    target_compile_definitions(DtBlkFxProcessorTests PRIVATE
+        "JucePlugin_Name=\"DtBlkFx\""
+        JucePlugin_IsMidiEffect=0
+        JucePlugin_IsSynth=0
+        JucePlugin_WantsMidiInput=0
+        JucePlugin_ProducesMidiOutput=0
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+    )
+
+    target_link_libraries(DtBlkFxProcessorTests PRIVATE
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags
+        DtBlkFxEngine
+    )
+
+    add_test(NAME DtBlkFxProcessorTests COMMAND DtBlkFxProcessorTests)
+endif()
+
+# ==============================================================================
 # Build information
 # ==============================================================================
 
@@ -230,4 +270,9 @@ message(STATUS "Processor:     ${CMAKE_SYSTEM_PROCESSOR}")
 message(STATUS "VST3:          Enabled")
 message(STATUS "CLAP:          Enabled")
 message(STATUS "FFTW3:         Required")
+if(BUILD_TESTING)
+    message(STATUS "Tests:         Engine tests + processor tests")
+else()
+    message(STATUS "Tests:         Disabled (BUILD_TESTING is off)")
+endif()
 message(STATUS "========================================")

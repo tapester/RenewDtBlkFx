@@ -222,6 +222,8 @@ DtBlkFxAudioProcessor::LegacyParameterBlock DtBlkFxAudioProcessor::getLegacyPara
     // is already the choice index (0..30). Do not rescale it.
     const auto typeIndex = juce::roundToInt(readFloat(fxParameterID(slot, "type")));
     legacy[offset + 3] = DtBlkFxLegacy::effectTypeToLegacyValue(typeIndex);
+
+    legacy[offset + 4] = readFloat(fxParameterID(slot, "value"));
   }
 
   return legacy;
