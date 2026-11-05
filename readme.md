@@ -7,7 +7,7 @@ Forked from https://codeberg.org/skullzy/DtBlkFx
 ## Build using CMake
 Windows with Powershell:
 
-```
+```powershell
 cmake --preset windows-x64
 cmake --build --preset windows-x64 --parallel
 ```
@@ -21,7 +21,7 @@ Redistributable for the matching architecture.
 To build a Windows variant with FFTW statically linked into the plugin instead,
 use the separate static-FFTW preset:
 
-```
+```powershell
 cmake --preset windows-x64-static-fftw
 cmake --build --preset windows-x64-static-fftw --parallel
 ```
@@ -33,7 +33,7 @@ C++ 2015-2022 Redistributable.
 
 MacOS Silicon with Bash:
 
-```
+```powershell
 cmake --preset macos-arm64
 cmake --build --preset macos-arm64 --parallel
 ```
@@ -83,8 +83,11 @@ The current JUCE editor exposes the global controls and eight effect slots
 with attached sliders, toggles, and populated effect selectors; controls are
 host-automatable and save their values with the plugin state. Value readouts
 show frequency, gain/mix, delay, block-size, and effect-specific units; labels
-and unused controls follow the selected effect. The
-processor now runs FFT frames through an overlap scheduler with legacy hop
+and unused controls follow the selected effect. The effect selectors show one
+`None` entry at the beginning without changing the legacy host parameter order.
+The Power control selects Match or Filter mode, which changes how Mix Back is
+interpreted. The processor now runs FFT frames through an overlap scheduler
+with legacy hop
 calculation, linear block crossfades, host-beat block sync, and delay-unit
 conversion (using 120 BPM when host tempo is unavailable). For short delays it
 reduces the FFT plan as the legacy engine does, then keeps that FFT size while
@@ -140,9 +143,12 @@ reference-render comparisons.
 
 Run the current engine tests after building with:
 
-```
+```powershell
 ctest --test-dir build/windows-x64 -C Release --output-on-failure
+ .\tools\pluginval\pluginval.exe --validate ".\build\windows-x64-static-fftw\DtBlkFx_artefacts\Release\VST3\DtBlkFx.vst3" --strictness-level 5
 ```
+
+
 
 The FFT workspace is isolated from JUCE and uses FFTW's single-precision API.
 The scheduler preallocates its mono/stereo input and output buffers and reserves
@@ -183,28 +189,33 @@ output parity.
 
 ## Remaining porting activities
 
-1. **Compare scheduler output with legacy references:** the legacy VST can force
-   partial FFT frames at host callback boundaries, while the JUCE engine waits
-   for a full frame and remains host-block-size invariant. No legacy reference
-   renders are present, so startup and delay-transition parity is unverified.
-   Obtain reference renders and host-specific behavior before considering an
-   opt-in callback-boundary compatibility mode; that mode is not implemented.
-   The current VST3/CLAP processor path receives APVTS snapshots at callback
-   boundaries, not timestamped parameter events, so in-block automation is not
-   sample-accurate. Add event-offset handling only if a supported JUCE format
-   path exposes those timestamps.
-2. **Compare and refine spectral effects:** render the legacy plugin and JUCE
-   port with identical inputs and parameters. Verify the five-bin
-   frequency-remapping kernel against legacy renders, refine fundamental
-   tracking and Shift's low-frequency peak alignment, mask
-   boundaries, Sweep interpolation, and stereo effect behavior. WarpMix needs
-   a closer port of the legacy curve-warping algorithm. No legacy reference
-   renders are currently included.
-3. **Restore visualization and GUI behavior:** smoke-test the parameter-bound
-   editor in VST3 and CLAP hosts, then publish input/output spectra safely to
-   the editor, implement the live spectrogram, and refine effect controls to
-   show the corresponding legacy value ranges and interactions.
-4. **Complete compatibility and real-time validation:** verify preset/state
-   migration, automation and transport changes, sample-rate/channel layouts,
-   callback allocation/locking behavior, and latency/tail reporting. Expand
-   DSP regressions, run pluginval, and smoke-test both plugin formats in hosts.
+1. **Smoke-test the current GUI in hosts:** load VST3 and CLAP in at least one
+   DAW each. Verify that each effect selector presents `None` once, first; that
+   selecting effects updates labels and readouts; and that Match/Filter
+   selection changes the Mix Back meaning. Check parameter automation, project
+   save/restore, editor reopening, and clean unload. The parameter-bound
+   controls, effect-aware readouts, and mode selector are implemented, but no
+   DAW/editor smoke test has been completed.
+2. **Compare and refine spectral effects:** obtain legacy reference renders,
+   then compare the JUCE port using identical inputs and parameters. Verify the
+   five-bin frequency-remapping kernel, fundamental tracking, Shift's
+   low-frequency peak alignment, mask boundaries, Sweep interpolation, and
+   stereo effect behavior. WarpMix still approximates the legacy
+   curve-warping algorithm; parity remains unverified without reference renders.
+3. **Validate scheduler and automation compatibility:** compare startup,
+   latency, and delay transitions against legacy renders. The legacy VST can
+   force partial FFT frames at host callback boundaries, while the JUCE engine
+   waits for a full frame and remains host-block-size invariant. Consider a
+   callback-boundary compatibility mode only if reference behavior requires
+   it. VST3/CLAP currently receive APVTS snapshots at callback boundaries, not
+   timestamped parameter events, so in-block automation is not sample-accurate;
+   add event-offset handling only if a supported JUCE format path exposes those
+   timestamps.
+4. **Port the live visualization:** safely publish input/output spectra to the
+   editor and implement the legacy live spectrogram. Keep audio-thread
+   processing independent of editor lifetime and verify behavior when the
+   editor is closed or reopened.
+5. **Complete release validation:** verify preset/state migration, transport
+   changes, sample-rate and channel-layout changes, callback allocation and
+   locking behavior, and latency/tail reporting. Expand DSP regressions, run
+   pluginval, and repeat host smoke tests for both plugin formats.

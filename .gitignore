@@ -1,5 +1,6 @@
 # CMake and JUCE build products. The presets write all generated builds here.
 /build/
+/tools/pluginval/
 
 # CMake-generated files that may appear if a build is configured in the source tree.
 CMakeFiles/
