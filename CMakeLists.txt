@@ -116,13 +116,20 @@ if(BUILD_TESTING)
     add_test(NAME DtBlkFxEngineTests COMMAND DtBlkFxEngineTests)
 
     # Robustness tests: all effects, FFT sizes, sample rates, block sizes, reset, API misuse.
-    # These are slow in Debug builds; the presets build Release.
     add_executable(DtBlkFxRobustnessTests
         tests/DtBlkFxRobustnessTests.cpp
     )
     target_link_libraries(DtBlkFxRobustnessTests PRIVATE DtBlkFxEngine)
     add_test(NAME DtBlkFxRobustnessTests COMMAND DtBlkFxRobustnessTests)
     set_tests_properties(DtBlkFxRobustnessTests PROPERTIES TIMEOUT 900)
+
+    # Parameter tests: hostile values, automation storms, extreme tempo, FFT and delay sweeps.
+    add_executable(DtBlkFxParameterTests
+        tests/DtBlkFxParameterTests.cpp
+    )
+    target_link_libraries(DtBlkFxParameterTests PRIVATE DtBlkFxEngine)
+    add_test(NAME DtBlkFxParameterTests COMMAND DtBlkFxParameterTests)
+    set_tests_properties(DtBlkFxParameterTests PROPERTIES TIMEOUT 900)
 endif()
 
 # ==============================================================================
@@ -224,44 +231,49 @@ target_link_libraries(DtBlkFx PRIVATE
 )
 
 # ==============================================================================
-# Processor tests (link JUCE and the real processor, unlike the engine tests)
+# JUCE-linked tests (they compile the real processor, unlike the engine tests)
+#   - DtBlkFxProcessorTests: parameter mapping and end-to-end audio
+#   - DtBlkFxStateTests:     state save/load, damaged state, parameter resolution, automation
 # ==============================================================================
 
 if(BUILD_TESTING)
-    juce_add_console_app(DtBlkFxProcessorTests
-        PRODUCT_NAME "DtBlkFxProcessorTests"
-    )
+    foreach(juce_test_name IN ITEMS DtBlkFxProcessorTests DtBlkFxStateTests)
+        juce_add_console_app(${juce_test_name}
+            PRODUCT_NAME "${juce_test_name}"
+        )
 
-    # The processor is compiled again here so the tests do not depend on plugin packaging.
-    target_sources(DtBlkFxProcessorTests PRIVATE
-        tests/DtBlkFxProcessorTests.cpp
-        src/DtBlkFxProcessor.cpp
-        src/DtBlkFxEditor.cpp
-    )
+        # The processor is compiled again here so the tests do not depend on plugin packaging.
+        target_sources(${juce_test_name} PRIVATE
+            tests/${juce_test_name}.cpp
+            src/DtBlkFxProcessor.cpp
+            src/DtBlkFxEditor.cpp
+        )
 
-    target_include_directories(DtBlkFxProcessorTests PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    )
+        target_include_directories(${juce_test_name} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        )
 
-    # These come from juce_add_plugin for the real plugin; supply them for the test build.
-    target_compile_definitions(DtBlkFxProcessorTests PRIVATE
-        "JucePlugin_Name=\"DtBlkFx\""
-        JucePlugin_IsMidiEffect=0
-        JucePlugin_IsSynth=0
-        JucePlugin_WantsMidiInput=0
-        JucePlugin_ProducesMidiOutput=0
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0
-    )
+        # These come from juce_add_plugin for the real plugin; supply them for the test build.
+        target_compile_definitions(${juce_test_name} PRIVATE
+            "JucePlugin_Name=\"DtBlkFx\""
+            JucePlugin_IsMidiEffect=0
+            JucePlugin_IsSynth=0
+            JucePlugin_WantsMidiInput=0
+            JucePlugin_ProducesMidiOutput=0
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0
+        )
 
-    target_link_libraries(DtBlkFxProcessorTests PRIVATE
-        juce::juce_audio_utils
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_warning_flags
-        DtBlkFxEngine
-    )
+        target_link_libraries(${juce_test_name} PRIVATE
+            juce::juce_audio_utils
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+            DtBlkFxEngine
+        )
 
-    add_test(NAME DtBlkFxProcessorTests COMMAND DtBlkFxProcessorTests)
+        add_test(NAME ${juce_test_name} COMMAND ${juce_test_name})
+        set_tests_properties(${juce_test_name} PROPERTIES TIMEOUT 600)
+    endforeach()
 endif()
 
 # ==============================================================================
@@ -280,7 +292,7 @@ message(STATUS "VST3:          Enabled")
 message(STATUS "CLAP:          Enabled")
 message(STATUS "FFTW3:         Required")
 if(BUILD_TESTING)
-    message(STATUS "Tests:         Engine + robustness + processor")
+    message(STATUS "Tests:         Engine + robustness + parameter + processor + state")
 else()
     message(STATUS "Tests:         Disabled (BUILD_TESTING is off)")
 endif()
