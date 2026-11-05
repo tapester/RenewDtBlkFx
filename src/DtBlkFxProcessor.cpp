@@ -22,7 +22,6 @@
 #include "DtBlkFxEngine.h"
 #include "DtBlkFxLegacyMapping.h"
 
-
 #include <cmath>
 
 namespace {
@@ -39,6 +38,11 @@ int getLegacyFftPlanIndex(float parameter)
   return juce::jlimit(0,
                       DtBlkFxEngine::fftSizeCount - 1,
                       static_cast<int>(parameter * 255.0f / 4.0f - 1.5f));
+}
+
+bool isOn(const std::atomic<float>* handle) noexcept
+{
+  return handle != nullptr && handle->load(std::memory_order_relaxed) >= 0.5f;
 }
 
 } // namespace
@@ -92,6 +96,7 @@ DtBlkFxAudioProcessor::DtBlkFxAudioProcessor()
     , parameters(*this, nullptr, "Parameters", createParameterLayout())
     , engine(std::make_unique<DtBlkFxEngine>())
 {
+  cacheParameterHandles();
 }
 
 DtBlkFxAudioProcessor::~DtBlkFxAudioProcessor() {}
@@ -130,10 +135,14 @@ bool DtBlkFxAudioProcessor::isMidiEffect() const
 
 double DtBlkFxAudioProcessor::getTailLengthSeconds() const
 {
-  const auto frameLatency =
-      currentSampleRate > 0.0 ? static_cast<double>(engine->getLatencySamples()) / currentSampleRate
-                              : 0.0;
-  return 6.0 + frameLatency;
+  // Longest possible delay between input and output: the engine's 6 s delay limit plus the
+  // latency of the largest FFT size (the size can be automated while playing).
+  constexpr double maximumDelaySeconds = 6.0;
+  const auto maximumFrameLatency =
+      currentSampleRate > 0.0
+          ? static_cast<double>(DtBlkFxEngine::maxFftSize - 1) / currentSampleRate
+          : 0.0;
+  return maximumDelaySeconds + maximumFrameLatency;
 }
 
 int DtBlkFxAudioProcessor::getNumPrograms()
@@ -193,42 +202,69 @@ juce::String DtBlkFxAudioProcessor::fxParameterID(int slot, const juce::String& 
   return "fx" + juce::String(slot + 1) + "_" + parameter;
 }
 
+void DtBlkFxAudioProcessor::cacheParameterHandles()
+{
+  // The pointers stay valid for the lifetime of the value tree state.
+  const auto find = [this](const juce::String& id) {
+    auto* value = parameters.getRawParameterValue(id);
+    jassert(value != nullptr);
+    return value;
+  };
+
+  handles.mixBack = find("mixback");
+  handles.powerMatch = find("power_match");
+  handles.delay = find("delay");
+  handles.fftLength = find("fft_len");
+  handles.overlap = find("overlap");
+  handles.blockSync = find("block_sync");
+  handles.parameterSync = find("parameter_sync");
+
+  for (int slot = 0; slot < 8; ++slot) {
+    auto& slotHandles = handles.slots[static_cast<size_t>(slot)];
+    slotHandles.freqA = find(fxParameterID(slot, "freq_a"));
+    slotHandles.freqB = find(fxParameterID(slot, "freq_b"));
+    slotHandles.amplitude = find(fxParameterID(slot, "amp"));
+    slotHandles.type = find(fxParameterID(slot, "type"));
+    slotHandles.value = find(fxParameterID(slot, "value"));
+  }
+}
+
 DtBlkFxAudioProcessor::LegacyParameterBlock DtBlkFxAudioProcessor::getLegacyParameterBlock() const
 {
-  const auto readFloat = [this](const juce::String& id) {
-    const auto* value = parameters.getRawParameterValue(id);
-    jassert(value != nullptr);
-    if (value == nullptr)
+  // A damaged state can leave a non-finite value in a parameter; never pass it on.
+  const auto readFloat = [](const std::atomic<float>* handle) {
+    if (handle == nullptr)
       return 0.0f;
-    // A damaged state can leave a non-finite value in a parameter; never pass it on.
-    const auto current = value->load(std::memory_order_relaxed);
+    const auto current = handle->load(std::memory_order_relaxed);
     return std::isfinite(current) ? current : 0.0f;
   };
-  const auto readBool = [&readFloat](const juce::String& id) { return readFloat(id) >= 0.5f; };
+  const auto readBool = [&readFloat](const std::atomic<float>* handle) {
+    return readFloat(handle) >= 0.5f;
+  };
 
   // The engine consumes the original compact 44-float parameter representation.
   LegacyParameterBlock legacy{};
-  const auto mixBack = juce::jlimit(0.0f, 1.0f, readFloat("mixback"));
-  legacy[0] = readBool("power_match") ? mixBack * 0.5f : 1.0f - mixBack * 0.499f;
-  legacy[1] = readFloat("delay");
-  legacy[2] = readFloat("fft_len");
+  const auto mixBack = juce::jlimit(0.0f, 1.0f, readFloat(handles.mixBack));
+  legacy[0] = readBool(handles.powerMatch) ? mixBack * 0.5f : 1.0f - mixBack * 0.499f;
+  legacy[1] = readFloat(handles.delay);
+  legacy[2] = readFloat(handles.fftLength);
 
-  const auto overlap = juce::jlimit(0.0f, 1.0f, readFloat("overlap"));
-  legacy[3] = readBool("block_sync") ? juce::jlimit(0.501f, 1.0f, 1.0f - overlap * 0.5f)
-                                     : juce::jlimit(0.0f, 0.499f, overlap * 0.5f);
+  const auto overlap = juce::jlimit(0.0f, 1.0f, readFloat(handles.overlap));
+  legacy[3] = readBool(handles.blockSync) ? juce::jlimit(0.501f, 1.0f, 1.0f - overlap * 0.5f)
+                                          : juce::jlimit(0.0f, 0.499f, overlap * 0.5f);
 
   for (int slot = 0; slot < 8; ++slot) {
     const auto offset = static_cast<size_t>(4 + slot * 5);
-    legacy[offset] = readFloat(fxParameterID(slot, "freq_a"));
-    legacy[offset + 1] = readFloat(fxParameterID(slot, "freq_b"));
-    legacy[offset + 2] = readFloat(fxParameterID(slot, "amp"));
+    const auto& slotHandles = handles.slots[static_cast<size_t>(slot)];
+    legacy[offset] = readFloat(slotHandles.freqA);
+    legacy[offset + 1] = readFloat(slotHandles.freqB);
+    legacy[offset + 2] = readFloat(slotHandles.amplitude);
 
-    // getRawParameterValue() returns the un-normalised value, which for a choice parameter
-    // is already the choice index (0..30). Do not rescale it.
-    const auto typeIndex = juce::roundToInt(readFloat(fxParameterID(slot, "type")));
+    // The raw value of a choice parameter is already the choice index (0..30). Do not rescale it.
+    const auto typeIndex = juce::roundToInt(readFloat(slotHandles.type));
     legacy[offset + 3] = DtBlkFxLegacy::effectTypeToLegacyValue(typeIndex);
 
-    legacy[offset + 4] = readFloat(fxParameterID(slot, "value"));
+    legacy[offset + 4] = readFloat(slotHandles.value);
   }
 
   return legacy;
@@ -238,6 +274,7 @@ void DtBlkFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
 {
   juce::ignoreUnused(samplesPerBlock);
   currentSampleRate = sampleRate;
+  beatTracker.reset(sampleRate);
 
   // FFT plans and buffers are prepared here so processBlock does not allocate them.
   const auto legacyParameters = getLegacyParameterBlock();
@@ -249,9 +286,9 @@ void DtBlkFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
   }
 
   engine->reset();
-  const auto parameterSync =
-      parameters.getRawParameterValue("parameter_sync")->load(std::memory_order_relaxed) >= 0.5f;
-  if (!engine->configureLegacyParameters(legacyParameters, sampleRate * 0.5, 0.0, parameterSync)) {
+  const auto defaultSamplesPerBeat = sampleRate * 60.0 / DtBlkFxHost::BeatTracker::defaultBpm;
+  if (!engine->configureLegacyParameters(
+          legacyParameters, defaultSamplesPerBeat, 0.0, isOn(handles.parameterSync))) {
     juce::Logger::writeToLog("DtBlkFx: failed to initialize parameter interpolation");
     engine->release();
     setLatencySamples(0);
@@ -302,9 +339,6 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
   // In case we have more outputs than inputs, this code clears any output
   // channels that didn't contain input data, (because these aren't
   // guaranteed to be empty - they may contain garbage).
-  // This is here to avoid people getting screaming feedback
-  // when they first compile a plugin, but obviously you don't need to keep
-  // this code if your algorithm always overwrites all the output channels.
   for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
     buffer.clear(i, 0, buffer.getNumSamples());
 
@@ -313,27 +347,26 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
   for (int channel = 0; channel < channelCount; ++channel)
     channels[static_cast<size_t>(channel)] = buffer.getWritePointer(channel);
 
-  // Capture host transport timing for beat-synchronized frame scheduling.
-  const auto legacyParameters = getLegacyParameterBlock();
-  auto tempo = 120.0;
-  auto beatPhaseSamples = 0.0;
+  // Host transport: tempo and beat position drive the beat-synchronised frame scheduling.
+  // Hosts may leave any of these out (the optionals are then empty); the tracker keeps the
+  // last tempo and a running beat grid.
+  DtBlkFxHost::TransportInfo transport;
   if (auto* audioPlayHead = getPlayHead()) {
-    juce::AudioPlayHead::CurrentPositionInfo position;
-    position.resetToDefault();
-    if (audioPlayHead->getCurrentPosition(position)) {
-      if (std::isfinite(position.bpm) && position.bpm > 0.0)
-        tempo = position.bpm;
-      if (std::isfinite(position.ppqPosition)) {
-        const auto beatFraction = position.ppqPosition - std::floor(position.ppqPosition);
-        beatPhaseSamples = beatFraction * currentSampleRate * 60.0 / tempo;
-      }
+    if (const auto position = audioPlayHead->getPosition()) {
+      if (const auto bpm = position->getBpm())
+        transport.bpm = *bpm;
+      if (const auto ppq = position->getPpqPosition())
+        transport.ppqPosition = *ppq;
+      transport.isPlaying = position->getIsPlaying();
     }
   }
-  const auto samplesPerBeat = currentSampleRate * 60.0 / tempo;
-  const auto parameterSync =
-      parameters.getRawParameterValue("parameter_sync")->load(std::memory_order_relaxed) >= 0.5f;
-  if (!engine->configureLegacyParameters(
-          legacyParameters, samplesPerBeat, beatPhaseSamples, parameterSync)) {
+  const auto timing = beatTracker.update(transport, buffer.getNumSamples());
+
+  const auto legacyParameters = getLegacyParameterBlock();
+  if (!engine->configureLegacyParameters(legacyParameters,
+                                         timing.samplesPerBeat,
+                                         timing.beatPhaseSamples,
+                                         isOn(handles.parameterSync))) {
     juce::Logger::writeToLog("DtBlkFx: failed to queue legacy parameter snapshot");
     buffer.clear();
     return;

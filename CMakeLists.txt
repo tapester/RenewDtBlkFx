@@ -130,6 +130,14 @@ if(BUILD_TESTING)
     target_link_libraries(DtBlkFxParameterTests PRIVATE DtBlkFxEngine)
     add_test(NAME DtBlkFxParameterTests COMMAND DtBlkFxParameterTests)
     set_tests_properties(DtBlkFxParameterTests PROPERTIES TIMEOUT 900)
+
+    # Host timing tests: tempo and beat-grid tracking, and block-sync alignment in the engine.
+    add_executable(DtBlkFxHostTimingTests
+        tests/DtBlkFxHostTimingTests.cpp
+    )
+    target_link_libraries(DtBlkFxHostTimingTests PRIVATE DtBlkFxEngine)
+    add_test(NAME DtBlkFxHostTimingTests COMMAND DtBlkFxHostTimingTests)
+    set_tests_properties(DtBlkFxHostTimingTests PROPERTIES TIMEOUT 600)
 endif()
 
 # ==============================================================================
@@ -234,10 +242,11 @@ target_link_libraries(DtBlkFx PRIVATE
 # JUCE-linked tests (they compile the real processor, unlike the engine tests)
 #   - DtBlkFxProcessorTests: parameter mapping and end-to-end audio
 #   - DtBlkFxStateTests:     state save/load, damaged state, parameter resolution, automation
+#   - DtBlkFxHostTests:      host playhead (tempo, beat position), latency, tail, sample rates
 # ==============================================================================
 
 if(BUILD_TESTING)
-    foreach(juce_test_name IN ITEMS DtBlkFxProcessorTests DtBlkFxStateTests)
+    foreach(juce_test_name IN ITEMS DtBlkFxProcessorTests DtBlkFxStateTests DtBlkFxHostTests)
         juce_add_console_app(${juce_test_name}
             PRODUCT_NAME "${juce_test_name}"
         )
@@ -292,7 +301,7 @@ message(STATUS "VST3:          Enabled")
 message(STATUS "CLAP:          Enabled")
 message(STATUS "FFTW3:         Required")
 if(BUILD_TESTING)
-    message(STATUS "Tests:         Engine + robustness + parameter + processor + state")
+    message(STATUS "Tests:         Engine + robustness + parameter + host timing + processor + state + host")
 else()
     message(STATUS "Tests:         Disabled (BUILD_TESTING is off)")
 endif()

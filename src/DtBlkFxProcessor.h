@@ -19,9 +19,12 @@
 
 #pragma once
 
+#include "DtBlkFxHostTiming.h"
+
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <array>
+#include <atomic>
 #include <memory>
 
 class DtBlkFxEngine;
@@ -68,10 +71,34 @@ public:
   void setStateInformation(const void* data, int sizeInBytes) override;
 
 private:
+  // Pointers to the parameters' raw values, looked up once in the constructor so that the
+  // audio thread never builds parameter IDs or searches by name.
+  struct SlotHandles {
+    std::atomic<float>* freqA = nullptr;
+    std::atomic<float>* freqB = nullptr;
+    std::atomic<float>* amplitude = nullptr;
+    std::atomic<float>* type = nullptr;
+    std::atomic<float>* value = nullptr;
+  };
+
+  struct ParameterHandles {
+    std::atomic<float>* mixBack = nullptr;
+    std::atomic<float>* powerMatch = nullptr;
+    std::atomic<float>* delay = nullptr;
+    std::atomic<float>* fftLength = nullptr;
+    std::atomic<float>* overlap = nullptr;
+    std::atomic<float>* blockSync = nullptr;
+    std::atomic<float>* parameterSync = nullptr;
+    std::array<SlotHandles, 8> slots{};
+  };
+
   // One normalized host parameter block is adapted to the engine's original control ranges.
   static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+  void cacheParameterHandles();
 
   std::unique_ptr<DtBlkFxEngine> engine;
+  ParameterHandles handles;
+  DtBlkFxHost::BeatTracker beatTracker;
   double currentSampleRate = 44100.0;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DtBlkFxAudioProcessor)
