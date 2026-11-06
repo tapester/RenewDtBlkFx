@@ -233,8 +233,8 @@ void testParameterLayout()
 {
   Processor processor;
 
-  const std::array<const char*, 7> globalIds{
-      "mixback", "power_match", "delay", "fft_len", "overlap", "block_sync", "parameter_sync"};
+  const std::array<const char*, 8> globalIds{
+      "mixback", "power_match", "delay", "fft_len", "overlap", "block_sync", "parameter_sync", "latency"};
   for (const auto* id : globalIds)
     check(processor.parameters.getParameter(id) != nullptr, std::string("missing parameter ") + id);
 
@@ -246,7 +246,7 @@ void testParameterLayout()
             "missing parameter " + id.toStdString());
     }
 
-  check(processor.getParameters().size() == 7 + slotCount * 5,
+  check(processor.getParameters().size() == 8 + slotCount * 5,
         "unexpected parameter count " + std::to_string(processor.getParameters().size()));
 
   const auto& names = Processor::effectTypeNames();
@@ -269,6 +269,13 @@ void testParameterLayout()
     check(names[26] == "Vocode", "index 26 should be Vocode");
     check(names[30] == "WarpMix", "index 30 should be WarpMix");
   }
+
+  // The latency parameter: default 4096 samples (latency 4095), as reported by earlier versions.
+  auto* latency =
+      dynamic_cast<juce::AudioParameterChoice*>(processor.parameters.getParameter("latency"));
+  if (check(latency != nullptr, "latency is not a choice parameter"))
+    check(Processor::latencySamplesForChoice(latency->getIndex()) == 4095,
+          "the default latency should be 4095 samples");
 }
 
 void testEveryEffectTypeInEverySlot()

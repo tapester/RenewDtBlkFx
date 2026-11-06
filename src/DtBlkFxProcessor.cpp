@@ -45,6 +45,12 @@ bool isOn(const std::atomic<float>* handle) noexcept
   return handle != nullptr && handle->load(std::memory_order_relaxed) >= 0.5f;
 }
 
+// Latency choices in samples of "block size covered" (the latency is one less). Chosen from the
+// engine's FFT sizes; 4096 is the default and matches what earlier versions reported.
+constexpr std::array<int, 19> latencyChoiceSizes{256,  512,  1024, 2048,  4096,  8192,  12288, 16384, 24576, 32768,
+                                                 40500, 49152, 57600, 65536, 80640, 3072,  5120,  6144,  9600};
+constexpr int defaultLatencyChoice = 4; // 4096
+
 } // namespace
 
 const juce::StringArray& DtBlkFxAudioProcessor::effectTypeNames()
@@ -82,6 +88,24 @@ const juce::StringArray& DtBlkFxAudioProcessor::effectTypeNames()
                                              "CrossMix",
                                              "WarpMix"};
   return effectTypes;
+}
+
+const juce::StringArray& DtBlkFxAudioProcessor::latencyChoiceNames()
+{
+  static const juce::StringArray names = [] {
+    juce::StringArray result;
+    for (const auto size : latencyChoiceSizes)
+      result.add(juce::String(size) + " samples");
+    return result;
+  }();
+  return names;
+}
+
+int DtBlkFxAudioProcessor::latencySamplesForChoice(int choiceIndex)
+{
+  const auto index = juce::jlimit(0, static_cast<int>(latencyChoiceSizes.size()) - 1, choiceIndex);
+  // A block of N samples needs N - 1 samples of latency.
+  return latencyChoiceSizes[static_cast<size_t>(index)] - 1;
 }
 
 DtBlkFxAudioProcessor::DtBlkFxAudioProcessor()
@@ -136,7 +160,7 @@ bool DtBlkFxAudioProcessor::isMidiEffect() const
 double DtBlkFxAudioProcessor::getTailLengthSeconds() const
 {
   // Longest possible delay between input and output: the engine's 6 s delay limit plus the
-  // latency of the largest FFT size (the size can be automated while playing).
+  // latency of the largest FFT size (the latency can be raised to that while playing).
   constexpr double maximumDelaySeconds = 6.0;
   const auto maximumFrameLatency =
       currentSampleRate > 0.0
@@ -194,6 +218,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout DtBlkFxAudioProcessor::creat
     layout.add(makeUnitParameter(fxParameterID(slot, "value"), slotName + " Value", 0.5f));
   }
 
+  // Added last so the existing parameter order and IDs stay as they were. The latency is the
+  // fixed delay between input and output that the host compensates for; Block Size is limited
+  // to what fits into it.
+  layout.add(std::make_unique<juce::AudioParameterChoice>(
+      "latency", "Latency (max block size)", latencyChoiceNames(), defaultLatencyChoice));
+
   return layout;
 }
 
@@ -218,6 +248,7 @@ void DtBlkFxAudioProcessor::cacheParameterHandles()
   handles.overlap = find("overlap");
   handles.blockSync = find("block_sync");
   handles.parameterSync = find("parameter_sync");
+  handles.latency = find("latency");
 
   for (int slot = 0; slot < 8; ++slot) {
     auto& slotHandles = handles.slots[static_cast<size_t>(slot)];
@@ -227,6 +258,17 @@ void DtBlkFxAudioProcessor::cacheParameterHandles()
     slotHandles.type = find(fxParameterID(slot, "type"));
     slotHandles.value = find(fxParameterID(slot, "value"));
   }
+}
+
+int DtBlkFxAudioProcessor::getSelectedLatencySamples() const noexcept
+{
+  float choice = static_cast<float>(defaultLatencyChoice);
+  if (handles.latency != nullptr) {
+    const auto raw = handles.latency->load(std::memory_order_relaxed);
+    if (std::isfinite(raw))
+      choice = raw;
+  }
+  return latencySamplesForChoice(juce::roundToInt(choice));
 }
 
 DtBlkFxAudioProcessor::LegacyParameterBlock DtBlkFxAudioProcessor::getLegacyParameterBlock() const
@@ -281,16 +323,22 @@ void DtBlkFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
   const auto fftPlanIndex = getLegacyFftPlanIndex(legacyParameters[2]);
   if (!engine->prepare(fftPlanIndex, sampleRate)) {
     juce::Logger::writeToLog("DtBlkFx: failed to prepare FFT engine");
+    appliedLatencySamples = 0;
     setLatencySamples(0);
     return;
   }
 
+  // The latency is fixed for the whole run (until the Latency parameter changes), so the delay
+  // between input and output does not depend on the Block Size.
+  appliedLatencySamples = getSelectedLatencySamples();
+  engine->setFixedLatency(appliedLatencySamples);
   engine->reset();
   const auto defaultSamplesPerBeat = sampleRate * 60.0 / DtBlkFxHost::BeatTracker::defaultBpm;
   if (!engine->configureLegacyParameters(
           legacyParameters, defaultSamplesPerBeat, 0.0, isOn(handles.parameterSync))) {
     juce::Logger::writeToLog("DtBlkFx: failed to initialize parameter interpolation");
     engine->release();
+    appliedLatencySamples = 0;
     setLatencySamples(0);
     return;
   }
@@ -300,6 +348,7 @@ void DtBlkFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
 void DtBlkFxAudioProcessor::releaseResources()
 {
   engine->release();
+  appliedLatencySamples = 0;
   setLatencySamples(0);
 }
 
@@ -347,6 +396,15 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
   for (int channel = 0; channel < channelCount; ++channel)
     channels[static_cast<size_t>(channel)] = buffer.getWritePointer(channel);
 
+  // The Latency parameter decides the fixed delay the host compensates for. Only a change of the
+  // parameter touches the engine and tells the host; Block Size automation never does.
+  const auto selectedLatency = getSelectedLatencySamples();
+  if (selectedLatency != appliedLatencySamples) {
+    appliedLatencySamples = selectedLatency;
+    engine->setFixedLatency(selectedLatency);
+    setLatencySamples(engine->getLatencySamples());
+  }
+
   // Host transport: tempo and beat position drive the beat-synchronised frame scheduling.
   // Hosts may leave any of these out (the optionals are then empty); the tracker keeps the
   // last tempo and a running beat grid.
@@ -376,9 +434,6 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
       !engine->process(channels.data(), channelCount, buffer.getNumSamples())) {
     buffer.clear();
     jassertfalse;
-  }
-  else {
-    setLatencySamples(engine->getLatencySamples());
   }
 }
 

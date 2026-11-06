@@ -138,6 +138,22 @@ if(BUILD_TESTING)
     target_link_libraries(DtBlkFxHostTimingTests PRIVATE DtBlkFxEngine)
     add_test(NAME DtBlkFxHostTimingTests COMMAND DtBlkFxHostTimingTests)
     set_tests_properties(DtBlkFxHostTimingTests PROPERTIES TIMEOUT 600)
+
+    # Fixed latency tests: the delay does not depend on the FFT size, and changing the FFT size
+    # while playing does not move, double or drop audio.
+    add_executable(DtBlkFxFixedLatencyTests
+        tests/DtBlkFxFixedLatencyTests.cpp
+    )
+    target_link_libraries(DtBlkFxFixedLatencyTests PRIVATE DtBlkFxEngine)
+    add_test(NAME DtBlkFxFixedLatencyTests COMMAND DtBlkFxFixedLatencyTests)
+    set_tests_properties(DtBlkFxFixedLatencyTests PROPERTIES TIMEOUT 900)
+
+    # Diagnostic (not a test, never run by ctest): measures the delay of the new engine and of
+    # the legacy VST2 plugin at steady settings and while the FFT size changes.
+    add_executable(DtBlkFxFftSwitchDiagnostic
+        tests/DtBlkFxFftSwitchDiagnostic.cpp
+    )
+    target_link_libraries(DtBlkFxFftSwitchDiagnostic PRIVATE DtBlkFxEngine)
 endif()
 
 # ==============================================================================
@@ -213,7 +229,6 @@ target_sources(DtBlkFx PRIVATE
 
 target_compile_definitions(DtBlkFx PUBLIC
 
-    JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_REPORT_APP_USAGE=0
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
@@ -301,7 +316,7 @@ message(STATUS "VST3:          Enabled")
 message(STATUS "CLAP:          Enabled")
 message(STATUS "FFTW3:         Required")
 if(BUILD_TESTING)
-    message(STATUS "Tests:         Engine + robustness + parameter + host timing + processor + state + host")
+    message(STATUS "Tests:         Engine + robustness + parameter + host timing + fixed latency + processor + state + host")
 else()
     message(STATUS "Tests:         Disabled (BUILD_TESTING is off)")
 endif()

@@ -269,9 +269,9 @@ void testLatencyAndTail()
 
 void testSampleRates()
 {
-  // configureBlockSync() selects the 1024-point FFT, so the reported latency is 1023 samples at
-  // every sample rate. (The default block size, 4096, gives 4095; that is checked separately.)
-  constexpr int expectedLatency = 1023;
+  // The reported latency is the Latency parameter's value (default 4096 samples -> 4095) and no
+  // longer follows the Block Size, which configureBlockSync() sets to the 1024-point FFT.
+  constexpr int expectedLatency = 4095;
 
   for (const auto rate : {8000.0, 22050.0, 44100.0, 48000.0, 88200.0, 96000.0, 192000.0}) {
     Processor processor;
@@ -294,6 +294,71 @@ void testSampleRates()
   }
 }
 
+// Every choice of the Latency parameter is reported to the host, and Block Size does not change it.
+void testLatencyChoices()
+{
+  const auto count = Processor::latencyChoiceNames().size();
+  for (int choice = 0; choice < count; ++choice) {
+    Processor processor;
+    setPlain(processor, "latency", static_cast<float>(choice));
+    setPlain(processor, "fft_len", 0.9f); // a large Block Size
+    processor.setRateAndBufferSizeDetails(testSampleRate, testBlockSize);
+    processor.prepareToPlay(testSampleRate, testBlockSize);
+
+    const auto expected = Processor::latencySamplesForChoice(choice);
+    check(processor.getLatencySamples() == expected,
+          "latency choice " + std::to_string(choice) + ": reported " + std::to_string(processor.getLatencySamples()) +
+              ", expected " + std::to_string(expected));
+
+    // Moving Block Size while playing must not change the reported latency.
+    FakePlayHead playHead;
+    processor.setPlayHead(&playHead);
+    juce::AudioBuffer<float> buffer(2, testBlockSize);
+    juce::MidiBuffer midi;
+    buffer.clear();
+    for (const auto size : {0.1f, 0.9f, 0.3f, 0.7f}) {
+      setPlain(processor, "fft_len", size);
+      processor.processBlock(buffer, midi);
+      check(processor.getLatencySamples() == expected,
+            "latency choice " + std::to_string(choice) + ": Block Size " + std::to_string(size) +
+                " changed the reported latency to " + std::to_string(processor.getLatencySamples()));
+    }
+    processor.setPlayHead(nullptr);
+    processor.releaseResources();
+  }
+}
+
+// Changing the Latency parameter while playing updates the reported latency, and changing the
+// Delay parameter does not.
+void testLatencyFollowsOnlyTheLatencyParameter()
+{
+  Processor processor;
+  processor.setRateAndBufferSizeDetails(testSampleRate, testBlockSize);
+  processor.prepareToPlay(testSampleRate, testBlockSize);
+  check(processor.getLatencySamples() == 4095, "default latency should be 4095");
+
+  juce::AudioBuffer<float> buffer(2, testBlockSize);
+  juce::MidiBuffer midi;
+  buffer.clear();
+
+  setPlain(processor, "delay", 0.9f);
+  processor.processBlock(buffer, midi);
+  check(processor.getLatencySamples() == 4095, "changing Delay changed the reported latency");
+
+  setPlain(processor, "latency", 7.0f); // 16384 samples
+  processor.processBlock(buffer, midi);
+  check(processor.getLatencySamples() == Processor::latencySamplesForChoice(7),
+        "changing Latency while playing did not update the reported latency (" +
+            std::to_string(processor.getLatencySamples()) + ")");
+
+  setPlain(processor, "latency", 0.0f); // 256 samples
+  processor.processBlock(buffer, midi);
+  check(processor.getLatencySamples() == Processor::latencySamplesForChoice(0),
+        "lowering Latency while playing did not update the reported latency");
+
+  processor.releaseResources();
+}
+
 void runTest(const char* name, void (*test)())
 {
   const auto failuresBefore = failureCount;
@@ -311,6 +376,9 @@ int main()
   runTest("host position and tempo reach the engine", testHostPositionAndTempoReachTheEngine);
   runTest("latency and tail length", testLatencyAndTail);
   runTest("sample rates", testSampleRates);
+  runTest("latency choices", testLatencyChoices);
+  runTest("latency follows only the Latency parameter", testLatencyFollowsOnlyTheLatencyParameter);
+
 
   std::cout << (failureCount == 0 ? "All host tests passed" : "Host tests failed") << " ("
             << failureCount << " failed checks)" << std::endl;

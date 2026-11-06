@@ -56,7 +56,21 @@ public:
   bool isPrepared() const noexcept { return timeBuffer != nullptr; }
   int getFftSize() const noexcept { return fftSize; }
   int getTimeWindowSamples() const noexcept { return timeWindowSamples; }
-  int getLatencySamples() const noexcept { return fftSize > 0 ? fftSize - 1 : 0; }
+  // Reported latency. With a fixed latency budget (see setFixedLatency) this is the budget and
+  // does not change with the FFT size; without one it is the current FFT size minus one.
+  int getLatencySamples() const noexcept
+  {
+    if (fixedLatencySamples > 0)
+      return fixedLatencySamples;
+    return fftSize > 0 ? fftSize - 1 : 0;
+  }
+  int getFixedLatency() const noexcept { return fixedLatencySamples; }
+  // Sets a fixed latency budget in samples, or 0 to go back to "FFT size minus one". Every frame
+  // is written at its input start plus the budget, so the delay between input and output no
+  // longer depends on the FFT size, and the FFT size is limited to the largest size that fits
+  // the budget (size - 1 <= budget). Can be called while audio is running; call it before the
+  // first sample (or after reset()) for a clean start.
+  void setFixedLatency(int latencySamples) noexcept;
   int getHopSize() const noexcept { return hopSize; }
   int getNextHopSize() const noexcept { return nextHopSize; }
   size_t getNextFrameStartSamples() const noexcept { return nextFrameStart; }
@@ -113,6 +127,8 @@ private:
 
   bool processFrame(int channelCount) noexcept;
   void setFftSize(int size) noexcept;
+  // The largest FFT size that fits the fixed latency budget (or the size itself without one).
+  int limitedFftSize(int size) const noexcept;
   void updateFrameParameters(size_t frameStart) noexcept;
   void getInterpolatedParameters(size_t samplePosition, LegacyParameters& result) const noexcept;
   void pruneParameterEvents() noexcept;
@@ -178,6 +194,7 @@ private:
   std::array<EffectParameters, 8> effects{};
   int fftSize = 0;
   int requestedFftSize = 0;
+  int fixedLatencySamples = 0;
   int timeWindowSamples = 0;
   int preWindowSamples = 0;
   int hopSize = 0;

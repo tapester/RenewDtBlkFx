@@ -235,7 +235,7 @@ void testRoundTrip()
                   std::to_string(b) + " after loading, was " + std::to_string(a));
         ++compared;
       }
-    check(compared == 47, "expected 47 parameters, compared " + std::to_string(compared));
+    check(compared == 48, "expected 48 parameters, compared " + std::to_string(compared));
     check(source.getLegacyParameterBlock() == target.getLegacyParameterBlock(),
           "round " + std::to_string(round) + ": the engine block differs after a round trip");
   }

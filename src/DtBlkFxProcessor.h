@@ -41,6 +41,9 @@ public:
   // Translate the stable host-facing parameter IDs into the engine's legacy 44-value layout.
   static juce::String fxParameterID(int slot, const juce::String& parameter);
   static const juce::StringArray& effectTypeNames();
+  // Names of the choices of the "latency" parameter, and the latency in samples for each of them.
+  static const juce::StringArray& latencyChoiceNames();
+  static int latencySamplesForChoice(int choiceIndex);
   LegacyParameterBlock getLegacyParameterBlock() const;
 
   void prepareToPlay(double sampleRate, int samplesPerBlock) override;
@@ -89,17 +92,22 @@ private:
     std::atomic<float>* overlap = nullptr;
     std::atomic<float>* blockSync = nullptr;
     std::atomic<float>* parameterSync = nullptr;
+    std::atomic<float>* latency = nullptr;
     std::array<SlotHandles, 8> slots{};
   };
 
   // One normalized host parameter block is adapted to the engine's original control ranges.
   static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
   void cacheParameterHandles();
+  // Latency in samples selected by the "latency" parameter (clamped to the valid range).
+  int getSelectedLatencySamples() const noexcept;
 
   std::unique_ptr<DtBlkFxEngine> engine;
   ParameterHandles handles;
   DtBlkFxHost::BeatTracker beatTracker;
   double currentSampleRate = 44100.0;
+  // Latency currently applied to the engine and reported to the host (0 when not prepared).
+  int appliedLatencySamples = 0;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DtBlkFxAudioProcessor)
 };

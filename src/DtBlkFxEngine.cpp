@@ -120,6 +120,7 @@ void DtBlkFxEngine::release() noexcept
   frequencyBuffer = nullptr;
   fftSize = 0;
   requestedFftSize = 0;
+  fixedLatencySamples = 0; // new: a released engine goes back to "FFT size minus one"
   timeWindowSamples = 0;
   preWindowSamples = 0;
   sampleRate = 44100.0;
@@ -602,6 +603,7 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
 
 void DtBlkFxEngine::setFftSize(int size) noexcept
 {
+  size = limitedFftSize(size);
   if (size <= 0 || size == fftSize)
     return;
 
@@ -615,6 +617,37 @@ void DtBlkFxEngine::setFftSize(int size) noexcept
   std::fill(effectMask.begin(), effectMask.end(), 1);
   for (auto& channel : channelStates)
     channel.spectrum.resize(binCount);
+}
+
+int DtBlkFxEngine::limitedFftSize(int size) const noexcept
+{
+  if (fixedLatencySamples <= 0 || size <= 0)
+    return size;
+
+  // A frame of N samples needs N - 1 samples of latency to be written in time, so the largest
+  // allowed size is the biggest one with N - 1 <= budget. Fall back to the smallest size if the
+  // budget is below every supported size.
+  int allowed = fftSizes.front();
+  for (const auto candidate : fftSizes)
+    if (candidate - 1 <= fixedLatencySamples)
+      allowed = candidate;
+  return std::min(size, allowed);
+}
+
+void DtBlkFxEngine::setFixedLatency(int latencySamples) noexcept
+{
+  const auto clamped = std::clamp(latencySamples, 0, maxFftSize);
+  if (clamped == fixedLatencySamples)
+    return;
+  fixedLatencySamples = clamped;
+
+  // Apply the new size limit now if the engine is running; the frame in progress keeps its size.
+  if (isPrepared() && samplesProcessed == 0) {
+    setFftSize(requestedFftSize > 0 ? requestedFftSize : fftSize);
+    updateTimeWindow();
+    updateHopSize();
+    nextHopSize = getNextFrameHop(nextFrameStart);
+  }
 }
 
 void DtBlkFxEngine::updateFrameParameters(size_t frameStart) noexcept
