@@ -154,6 +154,20 @@ if(BUILD_TESTING)
         tests/DtBlkFxFftSwitchDiagnostic.cpp
     )
     target_link_libraries(DtBlkFxFftSwitchDiagnostic PRIVATE DtBlkFxEngine)
+
+    # Effect comparison (not a test, never run by ctest): renders the same audio through the
+    # legacy VST2 plugin and through the new engine and compares level, correlation and spectrum.
+    add_executable(DtBlkFxEffectComparison
+        tests/DtBlkFxEffectComparison.cpp
+    )
+    target_link_libraries(DtBlkFxEffectComparison PRIVATE DtBlkFxEngine)
+
+    # Effect probe (not a test, never run by ctest): one effect through both plugins, with the
+    # spectral peaks or octave bands printed and optional WAV files for listening.
+    add_executable(DtBlkFxEffectProbe
+        tests/DtBlkFxEffectProbe.cpp
+    )
+    target_link_libraries(DtBlkFxEffectProbe PRIVATE DtBlkFxEngine)
 endif()
 
 # ==============================================================================
