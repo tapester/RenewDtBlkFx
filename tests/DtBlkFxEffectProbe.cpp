@@ -106,21 +106,26 @@ struct Rng {
   }
 };
 
+// When true, the tone fundamental sits between bins (20.37) instead of exactly on bin 20.
+bool g_offBin = false;
+
 Audio makeInput(bool tones)
 {
   Audio audio;
   audio.left.resize(kTotal);
   audio.right.resize(kTotal);
   if (tones) {
-    // Harmonic tones with fundamentals exactly on bins 20 and 30 of a 4096-point FFT.
-    const double f0 = 20.0 * kRate / kAnalysisFft;
-    const double f1 = 30.0 * kRate / kAnalysisFft;
+    // Harmonic tones with a shared fundamental on both channels: the left has every harmonic, the
+    // right only the odd ones with a different phase per harmonic.
+    const double fundamentalBin = g_offBin ? 20.37 : 20.0;
+    const double f0 = fundamentalBin * kRate / kAnalysisFft;
     for (int i = 0; i < kTotal; ++i) {
       double left = 0.0;
       double right = 0.0;
       for (int harmonic = 1; harmonic <= 20; ++harmonic) {
         left += (0.15 / harmonic) * std::sin(2.0 * pi * f0 * harmonic * i / kRate);
-        right += (0.15 / harmonic) * std::sin(2.0 * pi * f1 * harmonic * i / kRate);
+        if (harmonic % 2 == 1)
+          right += (0.2 / harmonic) * std::sin(2.0 * pi * f0 * harmonic * i / kRate + 0.7 * harmonic);
       }
       audio.left[static_cast<size_t>(i)] = static_cast<float>(left);
       audio.right[static_cast<size_t>(i)] = static_cast<float>(right);
@@ -136,6 +141,7 @@ Audio makeInput(bool tones)
   }
   return audio;
 }
+
 
 struct Backend {
   virtual ~Backend() = default;
@@ -493,12 +499,14 @@ int main(int argc, char** argv)
       channel = std::atoi(argv[++i]) == 1 ? 1 : 0;
     else if (argument == "--wav" && i + 1 < argc)
       wavFolder = argv[++i];
+    else if (argument == "--offbin")
+      g_offBin = true;
     else if (dll.empty())
       dll = argument;
   }
   if (dll.empty() || effect < 0 || effect > 30) {
     std::cout << "Usage: DtBlkFxEffectProbe.exe <path\\to\\legacy\\DtBlkFx.dll> --effect N [--value V] [--amp A] "
-                 "[--input tones|noise] [--channel 0|1] [--wav folder]\n";
+                 "[--input tones|noise] [--channel 0|1] [--offbin] [--wav folder]\n";
     return 0;
   }
 
@@ -555,8 +563,8 @@ int main(int argc, char** argv)
   const auto& newSignal = channel == 0 ? freshOut.left : freshOut.right;
 
   std::cout << "Effect " << effect << " (" << kEffectNames[static_cast<size_t>(effect)] << "), value " << value
-            << ", amplitude " << amplitude << ", input " << (tones ? "tones" : "noise") << ", channel " << channel
-            << ", FFT 4096\n";
+            << ", amplitude " << amplitude << ", input " << (tones ? "tones" : "noise") << (g_offBin && tones ? " (off-bin)" : "")
+            << ", channel " << channel << ", FFT 4096\n";
   std::cout << "Mean power per sample (dB re full scale): input " << fixed(toDb(totalPower(inSignal)), 2) << ", legacy "
             << fixed(toDb(totalPower(legSignal)), 2) << ", new " << fixed(toDb(totalPower(newSignal)), 2) << "\n";
 
@@ -566,7 +574,8 @@ int main(int argc, char** argv)
 
   if (tones) {
     std::cout << "\nStrongest spectral peaks (bin number with fraction; dB relative to a full-scale sine).\n";
-    std::cout << "Input fundamentals sit exactly on bin " << (channel == 0 ? 20 : 30) << ".\n";
+    std::cout << "The fundamental of both channels is at bin " << (g_offBin ? "20.37" : "20")
+              << " (the right channel has only the odd harmonics).\n";
     const auto printPeaks = [&](const char* name, const Spectrum& spectrum) {
       std::cout << "\n" << name << ":\n  ";
       int printed = 0;
@@ -607,7 +616,8 @@ int main(int argc, char** argv)
   }
 
   if (!wavFolder.empty()) {
-    const auto stem = wavFolder + "\\effect" + std::to_string(effect) + "_v" + fixed(value, 2) + "_" + (tones ? "tones" : "noise");
+    const auto stem = wavFolder + "\\effect" + std::to_string(effect) + "_v" + fixed(value, 2) + "_" + (tones ? "tones" : "noise") +
+                      (g_offBin && tones ? "_offbin" : "");
     writeWav(stem + "_input.wav", input);
     writeWav(stem + "_legacy.wav", legacyOut);
     writeWav(stem + "_new.wav", freshOut);

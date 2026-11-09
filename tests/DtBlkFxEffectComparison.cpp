@@ -163,6 +163,10 @@ struct Rng {
   }
 };
 
+// When true, the tone fundamental sits between bins (20.37) instead of exactly on bin 20.
+bool g_offBinTones = false;
+
+
 Audio makeNoise()
 {
   Audio audio;
@@ -177,20 +181,23 @@ Audio makeNoise()
   return audio;
 }
 
-// Harmonic tones whose fundamentals sit exactly on bins 20 and 30 of a 4096-point FFT.
+// Harmonic tones with a shared fundamental on both channels: the left has every harmonic, the right
+// only the odd ones with a different phase per harmonic, like two views of one source.
+// The fundamental is exactly on bin 20 of a 4096-point FFT, or between bins with --offbin.
 Audio makeTones()
 {
   Audio audio;
   audio.left.resize(kTotal);
   audio.right.resize(kTotal);
-  const double f0 = 20.0 * kRate / kAnalysisFft;
-  const double f1 = 30.0 * kRate / kAnalysisFft;
+  const double fundamentalBin = g_offBinTones ? 20.37 : 20.0;
+  const double f0 = fundamentalBin * kRate / kAnalysisFft;
   for (int i = 0; i < kTotal; ++i) {
     double left = 0.0;
     double right = 0.0;
     for (int harmonic = 1; harmonic <= 20; ++harmonic) {
       left += (0.15 / harmonic) * std::sin(2.0 * pi * f0 * harmonic * i / kRate);
-      right += (0.15 / harmonic) * std::sin(2.0 * pi * f1 * harmonic * i / kRate);
+      if (harmonic % 2 == 1)
+        right += (0.2 / harmonic) * std::sin(2.0 * pi * f0 * harmonic * i / kRate + 0.7 * harmonic);
     }
     audio.left[static_cast<size_t>(i)] = static_cast<float>(left);
     audio.right[static_cast<size_t>(i)] = static_cast<float>(right);
@@ -743,6 +750,7 @@ struct Options {
   int onlyEffect = -1;
   std::string csv;
   bool presets = true;
+  bool offBin = false;
 };
 
 Options parseOptions(int argc, char** argv)
@@ -754,6 +762,8 @@ Options parseOptions(int argc, char** argv)
       options.full = true;
     else if (argument == "--no-presets")
       options.presets = false;
+    else if (argument == "--offbin")
+      options.offBin = true;
     else if (argument == "--effect" && i + 1 < argc)
       options.onlyEffect = std::atoi(argv[++i]);
     else if (argument == "--csv" && i + 1 < argc)
@@ -763,6 +773,7 @@ Options parseOptions(int argc, char** argv)
   }
   return options;
 }
+
 
 struct Tally {
   int inside = 0;
@@ -817,6 +828,7 @@ int main(int argc, char** argv)
   return 0;
 #else
   const auto options = parseOptions(argc, argv);
+  g_offBinTones = options.offBin;
   if (options.dll.empty()) {
     std::cout << "Usage: DtBlkFxEffectComparison.exe <path\\to\\legacy\\DtBlkFx.dll> [--full] [--effect N] [--csv file] "
                  "[--no-presets]\n";
