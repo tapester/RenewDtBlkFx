@@ -732,7 +732,131 @@ void testRandomisedConfigurations()
       check(allFinite(channel), label + ": non-finite output");
   }
 }
+// A harmonic mask built from an off-bin fundamental must still cover the high harmonics. This
+// fails when the fundamental is only found to whole bins, because the error grows with the
+// harmonic number.
+void testSubharmonicMaskCoversOffBinHarmonics()
+{
+  constexpr double rate = 44100.0;
+  constexpr int plan = 8; // FFT 1024
+  const auto fft = DtBlkFxEngine::fftSizeAt(plan);
+  constexpr double fundamentalBin = 20.37;
 
+  DtBlkFxEngine engine;
+  if (!check(engine.prepare(plan, rate), "prepare failed"))
+    return;
+
+  // Slot 0: AutoSubharm1Mask (x0.5), all harmonics, width 80%. Slot 1: a Filter with amplitude 0
+  // over the whole range, which removes whatever the mask selects.
+  Slots slots{};
+  slots[0] = Slot{22, 0.0f, 1.0f, 0.6f, 0.2f};
+  slots[1] = Slot{0, 0.0f, 1.0f, 0.0f, 0.5f};
+
+  RenderSetup setup;
+  setup.params = makeParams(slots, plan, 0.0f, 0.0f);
+  setup.samplesPerBeat = rate * 0.5;
+
+  const int total = totalSamples(plan, 100, 6);
+  std::vector<float> tone(static_cast<size_t>(total));
+  for (int i = 0; i < total; ++i) {
+    double sum = 0.0;
+    for (int harmonic = 1; harmonic <= 16; ++harmonic)
+      sum += (0.15 / harmonic) * std::sin(2.0 * pi * fundamentalBin * harmonic * i / fft);
+    tone[static_cast<size_t>(i)] = static_cast<float>(sum);
+  }
+  const Channels input{tone};
+
+  engine.reset();
+  Channels output;
+  if (!check(renderEngine(engine, setup, input, output, std::vector<int>{512}), "processing failed"))
+    return;
+
+  // Energy at the 14th harmonic, in the last frames, compared with the input.
+  const auto energyAt = [&](const std::vector<float>& signal, double bin) {
+    double sine = 0.0;
+    double cosine = 0.0;
+    const int start = total - 3 * fft;
+    for (int i = start; i < total; ++i) {
+      sine += signal[static_cast<size_t>(i)] * std::sin(2.0 * pi * bin * i / fft);
+      cosine += signal[static_cast<size_t>(i)] * std::cos(2.0 * pi * bin * i / fft);
+    }
+    return std::sqrt(sine * sine + cosine * cosine);
+  };
+  for (const int harmonic : {10, 13, 14}) {
+    const auto bin = fundamentalBin * harmonic;
+    const auto before = energyAt(input[0], bin);
+    const auto after = energyAt(output[0], bin);
+    check(before > 0.0 && after < 0.2 * before,
+          "harmonic " + std::to_string(harmonic) + " of an off-bin fundamental was not removed by the mask (" +
+              std::to_string(after / std::max(before, 1.0e-12)) + " of its input energy is left)");
+  }
+}
+
+// CrossMix must keep the signal level: the output power of the mixed range is the mix of the two
+// input powers. (The engine used to take a second square root and had no power match, which made
+// the output level depend on the signal level.) Type 30 uses the same code as a stand-in.
+void testCrossMixKeepsLevel()
+{
+  constexpr double rate = 44100.0;
+  constexpr int plan = 16; // FFT 4096
+  constexpr int fft = 4096;
+  constexpr int hop = fft - 16; // overlap 0
+  constexpr int latency = fft - 1 + 100;
+  const std::array<float, 5> values{0.0f, 0.25f, 0.5f, 0.75f, 1.0f};
+
+  DtBlkFxEngine engine;
+  if (!check(engine.prepare(plan, rate), "prepare failed"))
+    return;
+
+  for (const int type : {29, 30}) {
+    for (const float scale : {1.0f, 0.05f}) {
+      for (const float value : values) {
+        Slots slots{};
+        slots[0] = Slot{type, 0.0f, 1.0f, 0.6f, value}; // 0 dB, the whole frequency range
+
+        RenderSetup setup;
+        setup.params = makeParams(slots, plan, 0.0f, 0.0f);
+        setup.samplesPerBeat = rate * 0.5;
+
+        const int total = totalSamples(plan, 100, 8);
+        Channels input{makeSignal(Signal::NoiseFull, total, 11u, rate), makeSignal(Signal::NoiseHalf, total, 22u, rate)};
+        for (auto& channel : input)
+          for (auto& sample : channel)
+            sample *= scale;
+
+        engine.reset();
+        Channels output;
+        const auto label = "effect " + std::to_string(type) + ", value " + std::to_string(value) + ", noise scale " +
+                           std::to_string(scale);
+        if (!check(renderEngine(engine, setup, input, output, std::vector<int>{512}), label + ": processing failed"))
+          continue;
+
+        const auto power = [](const std::vector<float>& data, int from, int to) {
+          double sum = 0.0;
+          for (int i = from; i < to; ++i)
+            sum += static_cast<double>(data[static_cast<size_t>(i)]) * data[static_cast<size_t>(i)];
+          return sum / (to - from);
+        };
+
+        // Input power over the stretch that produced the measured output.
+        const auto mix = value >= 0.5f ? (value - 0.5f) * 2.0f : value * 2.0f;
+        const auto leftPower = power(input[0], 2 * hop, 6 * hop);
+        const auto rightPower = power(input[1], 2 * hop, 6 * hop);
+        const auto sourcePower = value >= 0.5f ? rightPower : leftPower;
+        const auto destinationPower = value >= 0.5f ? leftPower : rightPower;
+        const auto expected = (1.0 - mix) * sourcePower + mix * destinationPower;
+        const auto measured = power(output[0], latency + 2 * hop, latency + 6 * hop);
+
+        const auto errorDb = 10.0 * std::log10(measured / expected);
+        check(std::abs(errorDb) < 0.5,
+              label + ": output power is " + std::to_string(errorDb) + " dB away from the mix of the input powers");
+        check(std::abs(power(output[0], latency + 2 * hop, latency + 6 * hop) -
+                       power(output[1], latency + 2 * hop, latency + 6 * hop)) <= 1.0e-6 * std::max(measured, 1.0e-12),
+              label + ": the two channels differ after the mix");
+      }
+    }
+  }
+}
 void runTest(const char* name, void (*test)())
 {
   const auto failuresBefore = failureCount;
@@ -751,6 +875,8 @@ int main()
   runTest("reset reproduces fresh output", testResetReproducesFreshOutput);
   runTest("API misuse", testApiMisuse);
   runTest("randomised configurations", testRandomisedConfigurations);
+  runTest("CrossMix keeps the signal level", testCrossMixKeepsLevel);
+  runTest("subharmonic mask covers off-bin harmonics", testSubharmonicMaskCoversOffBinHarmonics);
 
   std::cout << (failureCount == 0 ? "All robustness tests passed" : "Robustness tests failed") << " ("
             << failureCount << " failed checks)" << std::endl;

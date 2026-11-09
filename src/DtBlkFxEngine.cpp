@@ -1456,45 +1456,120 @@ void DtBlkFxEngine::applyConstShift(const EffectParameters& effect, size_t frame
   remapFrequencies(effect, 1.0f, shiftBins, false, false, frameStart);
 }
 
+float DtBlkFxEngine::estimatePeakBin(int centreBin) const noexcept
+{
+  // Port of the legacy EstFftBin(): the fractional position follows from the ratio of neighbouring
+  // bins of a sinusoid, using the side that carries more energy.
+  const auto binCount = static_cast<int>(bins.size());
+  if (centreBin < 1 || centreBin + 1 >= binCount)
+    return static_cast<float>(centreBin);
+
+  const auto& before = bins[static_cast<size_t>(centreBin - 1)];
+  const auto& centre = bins[static_cast<size_t>(centreBin)];
+  const auto& after = bins[static_cast<size_t>(centreBin + 1)];
+
+  const auto differenceBeforeReal = centre.real - before.real;
+  const auto differenceBeforeImag = centre.imaginary - before.imaginary;
+  const auto differenceAfterReal = after.real - centre.real;
+  const auto differenceAfterImag = after.imaginary - centre.imaginary;
+
+  const auto magnitudeBefore = std::hypot(before.real, before.imaginary);
+  const auto magnitudeAfter = std::hypot(after.real, after.imaginary);
+  const auto differenceBeforeMagnitude = std::hypot(differenceBeforeReal, differenceBeforeImag);
+  const auto differenceAfterMagnitude = std::hypot(differenceAfterReal, differenceAfterImag);
+
+  // Weighting between the two estimates.
+  const auto weightBefore = magnitudeBefore * 0.4f + differenceBeforeMagnitude;
+  const auto weightAfter = magnitudeAfter * 0.4f + differenceAfterMagnitude;
+  const auto weightSum = weightBefore + weightAfter;
+  if (!(weightSum > 0.0f) || !std::isfinite(weightSum))
+    return static_cast<float>(centreBin);
+  auto blend = weightBefore / weightSum;
+  blend = 0.5f * (1.0f + std::clamp((blend - 0.5f) * 5.0f, -1.0f, 1.0f));
+
+  // real(a / b) = (a.real * b.real + a.imag * b.imag) / |b|^2
+  const auto normBefore = differenceBeforeReal * differenceBeforeReal + differenceBeforeImag * differenceBeforeImag;
+  const auto normAfter = differenceAfterReal * differenceAfterReal + differenceAfterImag * differenceAfterImag;
+  auto fractionBefore = 0.0f;
+  auto fractionAfter = 0.0f;
+  if (normBefore > 0.0f)
+    fractionBefore =
+        (before.real * differenceBeforeReal + before.imaginary * differenceBeforeImag) / normBefore;
+  if (normAfter > 0.0f)
+    fractionAfter =
+        1.0f + (centre.real * differenceAfterReal + centre.imaginary * differenceAfterImag) / normAfter;
+
+  const auto fraction = std::clamp(fractionBefore * blend + fractionAfter * (1.0f - blend), -0.5f, 0.5f);
+  return std::isfinite(fraction) ? static_cast<float>(centreBin) + fraction : static_cast<float>(centreBin);
+}
+
 float DtBlkFxEngine::findFundamentalBin(int firstBin,
                                         int lastBin,
                                         int minimumSubharmonicBin) const noexcept
 {
+  // Port of the legacy PeakFindFft(): search whole bins and half bins for the strongest peak,
+  // refine it to a fractional bin, then check whether it is really a harmonic of a lower
+  // fundamental (1/2 up to 1/5 of the peak position).
   const auto maximumBin = fftBinCount(fftSize) - 1;
   firstBin = std::clamp(firstBin, 1, maximumBin);
   lastBin = std::clamp(lastBin, 1, maximumBin);
   if (firstBin > lastBin)
     std::swap(firstBin, lastBin);
 
-  auto peakBin = firstBin;
-  auto peakPower = 0.0f;
+  auto bestPower = -1.0f;
+  auto peakBin = -1;
+  auto previousReal = 0.0f;
+  auto previousImaginary = 0.0f;
+  auto previousPower = 0.0f;
   for (auto bin = firstBin; bin <= lastBin; ++bin) {
     const auto& value = bins[static_cast<size_t>(bin)];
     const auto power = value.real * value.real + value.imaginary * value.imaginary;
-    if (power > peakPower) {
-      peakPower = power;
+
+    // Power half way between the previous and the current bin.
+    const auto halfReal = value.real - previousReal;
+    const auto halfImaginary = value.imaginary - previousImaginary;
+    const auto halfPower = 0.79f * 0.79f * (halfReal * halfReal + halfImaginary * halfImaginary);
+
+    if (halfPower > bestPower) {
+      bestPower = halfPower;
+      peakBin = bin;
+      if (previousPower > power)
+        --peakBin;
+    }
+    if (power > bestPower) {
+      bestPower = power;
       peakBin = bin;
     }
+    previousReal = value.real;
+    previousImaginary = value.imaginary;
+    previousPower = power;
   }
-  if (peakPower <= 1.0e-25f)
+  if (peakBin < 1 || !(bestPower > 1.0e-25f))
     return 0.0f;
 
-  auto fundamental = static_cast<float>(peakBin);
-  for (int harmonic = 5; harmonic >= 2; --harmonic) {
-    const auto candidate = peakBin / harmonic;
-    if (candidate < minimumSubharmonicBin || candidate < firstBin || candidate + 1 > lastBin)
+  const auto estimate = estimatePeakBin(peakBin);
+
+  // Is the peak a harmonic of a lower fundamental? Expect energy in the bin at, or just above,
+  // the candidate fundamental position.
+  const auto lowestBin = std::max(firstBin, minimumSubharmonicBin);
+  const auto threshold = 0.1f * bestPower;
+  auto harmonic = 1;
+  for (auto divisor = 2; divisor <= 5; ++divisor) {
+    const auto candidate = static_cast<int>(std::floor(estimate / static_cast<float>(divisor)));
+    if (candidate < lowestBin)
+      break;
+    if (candidate + 1 > maximumBin)
       continue;
-    const auto& candidateValue = bins[static_cast<size_t>(candidate)];
-    const auto& nextValue = bins[static_cast<size_t>(candidate + 1)];
-    const auto candidatePower = candidateValue.real * candidateValue.real +
-                                candidateValue.imaginary * candidateValue.imaginary;
-    const auto nextPower =
-        nextValue.real * nextValue.real + nextValue.imaginary * nextValue.imaginary;
-    if (candidatePower > peakPower * 0.1f || nextPower > peakPower * 0.1f)
-      fundamental = static_cast<float>(peakBin) / static_cast<float>(harmonic);
+    const auto& low = bins[static_cast<size_t>(candidate)];
+    const auto& high = bins[static_cast<size_t>(candidate + 1)];
+    const auto lowPower = low.real * low.real + low.imaginary * low.imaginary;
+    const auto highPower = high.real * high.real + high.imaginary * high.imaginary;
+    if (lowPower > threshold || highPower > threshold)
+      harmonic = divisor;
   }
-  return fundamental;
+  return estimate / static_cast<float>(harmonic);
 }
+
 
 void DtBlkFxEngine::applySweep(const EffectParameters& effect) noexcept
 {
@@ -1842,39 +1917,86 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect, int channe
     return;
   }
 
+  // CrossMix (29). WarpMix (30) shares this code as a stand-in: the legacy WarpMix is a different
+  // algorithm that has not been ported.
   const auto value = std::isfinite(effect.value) ? std::clamp(effect.value, 0.0f, 1.0f) : 0.5f;
   const auto reverse = value >= 0.5f;
   const auto mix = reverse ? (value - 0.5f) * 2.0f : value * 2.0f;
   const auto& source = reverse ? right : left;
-  const auto& destination = reverse ? left : right;
-  auto& result = reverse ? left : right;
+  auto& destination = reverse ? left : right;
+  // Exponents on the squared magnitude, as in the legacy plugin: raise = clamp(1.6 * fraction, 0, 1) * 0.5.
   const auto sourceExponent = std::clamp(0.8f * (1.0f - mix), 0.0f, 0.5f);
   const auto destinationExponent = std::clamp(0.8f * mix, 0.0f, 0.5f);
-  const auto mixBack = std::max(1.0f - gain, 0.0f);
-  for (int bin = std::max(1, firstBin); bin <= lastBin; ++bin) {
-    if (!isEffectBinSelected(bin))
-      continue;
-    const auto& sourceValue = source[static_cast<size_t>(bin)];
-    const auto& destinationValue = destination[static_cast<size_t>(bin)];
-    const auto sourcePower = sourceValue.real * sourceValue.real +
-                             sourceValue.imaginary * sourceValue.imaginary;
-    const auto destinationPower = destinationValue.real * destinationValue.real +
-                                  destinationValue.imaginary * destinationValue.imaginary;
-    const auto power = std::pow(std::max(sourcePower, 1.0e-30f), sourceExponent) *
-                       std::pow(std::max(destinationPower, 1.0e-30f), destinationExponent);
-    const auto sourcePhase = std::atan2(sourceValue.imaginary, sourceValue.real);
-    const auto destinationPhase = std::atan2(destinationValue.imaginary, destinationValue.real);
-    const auto phase = sourcePhase * (1.0f - mix) + destinationPhase * mix;
-    const auto magnitude = gain * std::sqrt(power);
-    result[static_cast<size_t>(bin)] = {
-        destinationValue.real * mixBack + magnitude * std::cos(phase),
-        destinationValue.imaginary * mixBack + magnitude * std::sin(phase)};
-  }
-  const auto& mixed = reverse ? left : right;
-  left = mixed;
-  right = mixed;
-}
+  // The legacy CrossMix amplitude is a plain gain. Only the WarpMix stand-in blends the original back in.
+  const auto mixBack = effect.type == 29 ? 0.0f : std::max(1.0f - gain, 0.0f);
 
+  // Mixes the bins runFirst..runLast (one contiguous run of selected bins).
+  const auto mixRun = [&](int runFirst, int runLast) {
+    // First pass: the powers needed to match the level of the run.
+    double sourceTotal = 0.0;
+    double destinationTotal = 0.0;
+    double mixedTotal = 0.0;
+    for (int bin = runFirst; bin <= runLast; ++bin) {
+      const auto& sourceValue = source[static_cast<size_t>(bin)];
+      const auto& destinationValue = destination[static_cast<size_t>(bin)];
+      const auto sourcePower = sourceValue.real * sourceValue.real +
+                               sourceValue.imaginary * sourceValue.imaginary;
+      const auto destinationPower = destinationValue.real * destinationValue.real +
+                                    destinationValue.imaginary * destinationValue.imaginary;
+      sourceTotal += sourcePower;
+      destinationTotal += destinationPower;
+      // The power law is applied to the squared magnitude and gives the magnitude directly.
+      const auto magnitude = std::pow(std::max(sourcePower, 1.0e-30f), sourceExponent) *
+                             std::pow(std::max(destinationPower, 1.0e-30f), destinationExponent);
+      mixedTotal += static_cast<double>(magnitude) * magnitude;
+    }
+
+    // The output power of the run is the mix of the two input powers (legacy MatchPwr).
+    const auto targetPower = sourceTotal * (1.0 - mix) + destinationTotal * mix;
+    auto scale = 0.0;
+    if (targetPower > 0.0) {
+      scale = mixedTotal > 0.0 ? std::sqrt(targetPower / mixedTotal) : 1.0;
+      if (scale > 1.0e30)
+        scale = 1.0;
+      else if (scale < 1.0e-37)
+        scale = 0.0;
+    }
+    const auto outputGain = static_cast<float>(gain * scale);
+
+    // Second pass: write the mixed bins.
+    for (int bin = runFirst; bin <= runLast; ++bin) {
+      const auto sourceValue = source[static_cast<size_t>(bin)];
+      const auto destinationValue = destination[static_cast<size_t>(bin)];
+      const auto sourcePower = sourceValue.real * sourceValue.real +
+                               sourceValue.imaginary * sourceValue.imaginary;
+      const auto destinationPower = destinationValue.real * destinationValue.real +
+                                    destinationValue.imaginary * destinationValue.imaginary;
+      const auto magnitude = std::pow(std::max(sourcePower, 1.0e-30f), sourceExponent) *
+                             std::pow(std::max(destinationPower, 1.0e-30f), destinationExponent);
+      const auto sourcePhase = std::atan2(sourceValue.imaginary, sourceValue.real);
+      const auto destinationPhase = std::atan2(destinationValue.imaginary, destinationValue.real);
+      const auto phase = sourcePhase * (1.0f - mix) + destinationPhase * mix;
+      destination[static_cast<size_t>(bin)] = {
+          destinationValue.real * mixBack + outputGain * magnitude * std::cos(phase),
+          destinationValue.imaginary * mixBack + outputGain * magnitude * std::sin(phase)};
+    }
+  };
+
+  int runStart = -1;
+  for (int bin = std::max(1, firstBin); bin <= lastBin + 1; ++bin) {
+    const auto selected = bin <= lastBin && isEffectBinSelected(bin);
+    if (selected && runStart < 0) {
+      runStart = bin;
+      continue;
+    }
+    if (selected || runStart < 0)
+      continue;
+    mixRun(runStart, bin - 1);
+    runStart = -1;
+  }
+  left = destination;
+  right = destination;
+}
 void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t frameStart) noexcept
 {
   if (effect.type != 11 && effect.type != 12 && effect.type != 13 && effect.type != 14)

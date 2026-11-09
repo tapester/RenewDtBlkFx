@@ -161,6 +161,8 @@ private:
   float findFundamentalBin(int firstBin,
                            int lastBin,
                            int minimumSubharmonicBin = 3) const noexcept;
+  // Refines an integer peak bin to a fractional position from the phase of the three bins around it.
+  float estimatePeakBin(int centreBin) const noexcept;
   void remapFrequencies(const EffectParameters& effect,
                         float scale,
                         float offset,
