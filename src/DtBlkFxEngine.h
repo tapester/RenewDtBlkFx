@@ -157,7 +157,10 @@ private:
   void applyConstShift(const EffectParameters& effect, size_t frameStart) noexcept;
   void applyHarmonicEffect(const EffectParameters& effect, size_t frameStart) noexcept;
   void applySweep(const EffectParameters& effect) noexcept;
-  void applyStereoEffect(const EffectParameters& effect, int channelCount) noexcept;
+  //void applyStereoEffect(const EffectParameters& effect, int channelCount) noexcept;
+  void applyStereoEffect(const EffectParameters& effect,
+                         int channelCount,
+                         std::array<double, 2>& targetPowers) noexcept;
   float findFundamentalBin(int firstBin,
                            int lastBin,
                            int minimumSubharmonicBin = 3) const noexcept;

@@ -7,6 +7,11 @@
 # VCPKG on Macos
 /vcpkg_installed/
 
+# Legacy Plugin and work
+/legacy_plugin/
+/legacy_src/
+/work/
+
 # CMake-generated files that may appear if a build is configured in the source tree.
 CMakeFiles/
 CMakeCache.txt

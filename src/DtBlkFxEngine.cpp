@@ -525,7 +525,7 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
       continue;
 
     if (effect.type >= 26 && effect.type <= 30) {
-      applyStereoEffect(effect, channelCount);
+      applyStereoEffect(effect, channelCount, inputPowers);
       continue;
     }
 
@@ -1696,7 +1696,9 @@ void DtBlkFxEngine::applySweep(const EffectParameters& effect) noexcept
   }
 }
 
-void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect, int channelCount) noexcept
+void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
+                                      int channelCount,
+                                      std::array<double, 2>& targetPowers) noexcept
 {
   if (channelCount != 2 || effect.type < 26 || effect.type > 30)
     return;
@@ -1931,7 +1933,12 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect, int channe
   const auto mixBack = effect.type == 29 ? 0.0f : std::max(1.0f - gain, 0.0f);
 
   // Mixes the bins runFirst..runLast (one contiguous run of selected bins).
+  int processedBins = 0;
+  const auto spectrumPowerWeight = [maximumBin](int bin) {
+    return bin == 0 || bin == maximumBin ? 1.0 : 2.0;
+  };
   const auto mixRun = [&](int runFirst, int runLast) {
+    processedBins += runLast - runFirst + 1;
     // First pass: the powers needed to match the level of the run.
     double sourceTotal = 0.0;
     double destinationTotal = 0.0;
@@ -1943,12 +1950,13 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect, int channe
                                sourceValue.imaginary * sourceValue.imaginary;
       const auto destinationPower = destinationValue.real * destinationValue.real +
                                     destinationValue.imaginary * destinationValue.imaginary;
-      sourceTotal += sourcePower;
-      destinationTotal += destinationPower;
-      // The power law is applied to the squared magnitude and gives the magnitude directly.
-      const auto magnitude = std::pow(std::max(sourcePower, 1.0e-30f), sourceExponent) *
-                             std::pow(std::max(destinationPower, 1.0e-30f), destinationExponent);
-      mixedTotal += static_cast<double>(magnitude) * magnitude;
+      const auto weight = spectrumPowerWeight(bin);
+      sourceTotal += weight * sourcePower;
+      destinationTotal += weight * destinationPower;
+      const auto magnitude =
+          std::pow(std::max(sourcePower, 1.0e-30f), sourceExponent) *
+          std::pow(std::max(destinationPower, 1.0e-30f), destinationExponent);
+      mixedTotal += weight * static_cast<double>(magnitude) * magnitude;
     }
 
     // The output power of the run is the mix of the two input powers (legacy MatchPwr).
@@ -1994,9 +2002,24 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect, int channe
     mixRun(runStart, bin - 1);
     runStart = -1;
   }
+  if (effect.type == 29) {
+    const auto totalBins = static_cast<double>(fftBinCount(fftSize));
+    const auto processedFraction =
+        totalBins > 0.0 ? std::clamp(static_cast<double>(processedBins) / totalBins, 0.0, 1.0)
+                        : 0.0;
+    const auto mixedPower = targetPowers[reverse ? 1 : 0] * (1.0 - mix) +
+                            targetPowers[reverse ? 0 : 1] * mix;
+    const auto destinationPower = targetPowers[reverse ? 0 : 1];
+    const auto adjustedPower =
+        destinationPower + (mixedPower - destinationPower) * processedFraction;
+
+    targetPowers[0] = adjustedPower;
+    targetPowers[1] = adjustedPower;
+  }
   left = destination;
   right = destination;
 }
+
 void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t frameStart) noexcept
 {
   if (effect.type != 11 && effect.type != 12 && effect.type != 13 && effect.type != 14)

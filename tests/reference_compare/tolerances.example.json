@@ -1,0 +1,13 @@
+{
+  "default": {
+    "lsd_db": [3.0, 6.0],
+    "level_diff_db": [1.0, 3.0],
+    "env_corr": [0.90, 0.70],
+    "band_diff_db": [3.0, 8.0]
+  },
+  "groups": {
+    "timing": {"lsd_db": [4.0, 8.0]},
+    "preset": {"lsd_db": [4.0, 8.0], "band_diff_db": [4.0, 10.0]}
+  },
+  "cases": {}
+}

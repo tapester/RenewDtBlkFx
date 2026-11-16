@@ -837,9 +837,28 @@ void testCrossMixKeepsLevel()
             sum += static_cast<double>(data[static_cast<size_t>(i)]) * data[static_cast<size_t>(i)];
           return sum / (to - from);
         };
+        const auto mix = value >= 0.5f ? (value - 0.5f) * 2.0f : value * 2.0f;
+
+        for (int frame = 2; frame < 6; ++frame) {
+          const auto inputFrom = frame * hop;
+          const auto inputTo = inputFrom + fft;
+          const auto outputFrom = latency + inputFrom;
+          const auto outputTo = outputFrom + fft;
+
+          const auto sourceFramePower =
+              power(value >= 0.5f ? input[1] : input[0], inputFrom, inputTo);
+          const auto destinationFramePower =
+              power(value >= 0.5f ? input[0] : input[1], inputFrom, inputTo);
+          const auto expectedFrame =
+              (1.0 - mix) * sourceFramePower + mix * destinationFramePower;
+          const auto measuredFrame = power(output[0], outputFrom, outputTo);
+
+          info(label + ", frame " + std::to_string(frame) +
+              ": " + std::to_string(10.0 * std::log10(measuredFrame / expectedFrame)) +
+              " dB");
+        }
 
         // Input power over the stretch that produced the measured output.
-        const auto mix = value >= 0.5f ? (value - 0.5f) * 2.0f : value * 2.0f;
         const auto leftPower = power(input[0], 2 * hop, 6 * hop);
         const auto rightPower = power(input[1], 2 * hop, 6 * hop);
         const auto sourcePower = value >= 0.5f ? rightPower : leftPower;
