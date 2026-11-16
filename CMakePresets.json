@@ -1,50 +1,89 @@
+
 {
   "version": 3,
   "configurePresets": [
     {
-      "name": "windows-x64",
-      "displayName": "Windows x64 - Ninja Release (static FFTW, default)",
+      "name": "base-ninja-release",
+      "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/windows-x64",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "windows-x64",
+      "displayName": "Windows x64 - Ninja Release (static FFTW)",
+      "inherits": "base-ninja-release",
+      "binaryDir": "${sourceDir}/build/windows-x64",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+        "BUILD_TESTING": "OFF",
+        "DTBLKFX_BUILD_DIAGNOSTICS": "OFF"
+      }
+    },
+    {
+      "name": "windows-x64-tests",
+      "displayName": "Windows x64 - Ninja Release with tests",
+      "inherits": "windows-x64",
+      "binaryDir": "${sourceDir}/build/windows-x64-tests",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
       }
     },
     {
       "name": "windows-x64-dynamic-fftw",
-      "displayName": "Windows x64 - Ninja Release (dynamic FFTW, needs fftw3f.dll)",
-      "generator": "Ninja",
+      "displayName": "Windows x64 - Ninja Release (dynamic FFTW)",
+      "inherits": "base-ninja-release",
       "binaryDir": "${sourceDir}/build/windows-x64-dynamic-fftw",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "BUILD_TESTING": "OFF",
+        "DTBLKFX_BUILD_DIAGNOSTICS": "OFF"
       }
     },
     {
       "name": "macos-arm64",
       "displayName": "macOS Apple Silicon - Ninja Release",
-      "generator": "Ninja",
+      "inherits": "base-ninja-release",
       "binaryDir": "${sourceDir}/build/macos-arm64",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "arm64-osx",
-        "CMAKE_OSX_ARCHITECTURES": "arm64"
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0",
+        "BUILD_TESTING": "OFF",
+        "DTBLKFX_BUILD_DIAGNOSTICS": "OFF"
+      }
+    },
+    {
+      "name": "macos-arm64-tests",
+      "displayName": "macOS Apple Silicon - Ninja Release with tests",
+      "inherits": "macos-arm64",
+      "binaryDir": "${sourceDir}/build/macos-arm64-tests",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
       }
     },
     {
       "name": "macos-x64",
       "displayName": "macOS Intel - Ninja Release",
-      "generator": "Ninja",
+      "inherits": "base-ninja-release",
       "binaryDir": "${sourceDir}/build/macos-x64",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-osx",
-        "CMAKE_OSX_ARCHITECTURES": "x86_64"
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0",
+        "BUILD_TESTING": "OFF",
+        "DTBLKFX_BUILD_DIAGNOSTICS": "OFF"
+      }
+    },
+    {
+      "name": "macos-x64-tests",
+      "displayName": "macOS Intel - Ninja Release with tests",
+      "inherits": "macos-x64",
+      "binaryDir": "${sourceDir}/build/macos-x64-tests",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
       }
     }
   ],
@@ -52,6 +91,10 @@
     {
       "name": "windows-x64",
       "configurePreset": "windows-x64"
+    },
+    {
+      "name": "windows-x64-tests",
+      "configurePreset": "windows-x64-tests"
     },
     {
       "name": "windows-x64-dynamic-fftw",
@@ -62,8 +105,48 @@
       "configurePreset": "macos-arm64"
     },
     {
+      "name": "macos-arm64-tests",
+      "configurePreset": "macos-arm64-tests"
+    },
+    {
       "name": "macos-x64",
       "configurePreset": "macos-x64"
+    },
+    {
+      "name": "macos-x64-tests",
+      "configurePreset": "macos-x64-tests"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-x64-tests",
+      "configurePreset": "windows-x64-tests",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 4
+      }
+    },
+    {
+      "name": "macos-arm64-tests",
+      "configurePreset": "macos-arm64-tests",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 4
+      }
+    },
+    {
+      "name": "macos-x64-tests",
+      "configurePreset": "macos-x64-tests",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "jobs": 4
+      }
     }
   ]
 }

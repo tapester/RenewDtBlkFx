@@ -1,3 +1,4 @@
+
 # ==============================================================================
 # RenewDtBlkFx
 # Cross-platform JUCE audio plugin
@@ -13,7 +14,7 @@
 # Dependencies:
 #   - JUCE (Git submodule)
 #   - clap-juce-extensions (Git submodule)
-#   - FFTW3 (vcpkg)
+#   - FFTW3f (vcpkg)
 #
 # Build system: CMake >= 3.22
 # C++ standard: C++17
@@ -37,6 +38,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Position-independent code is required by some plugin build configurations.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Diagnostic applications are separate from automated CTest tests.
+option(DTBLKFX_BUILD_DIAGNOSTICS
+    "Build DSP diagnostic and comparison applications"
+    OFF
+)
 
 # ==============================================================================
 # Dependency locations
@@ -62,7 +69,8 @@ endif()
 if(NOT EXISTS "${CLAP_JUCE_EXTENSIONS_DIR}/CMakeLists.txt")
     message(FATAL_ERROR
         "clap-juce-extensions not found.\n"
-        "Add and initialize the CLAP JUCE Extensions submodule."
+        "Initialize Git submodules:\n"
+        "git submodule update --init --recursive"
     )
 endif()
 
@@ -89,6 +97,7 @@ add_subdirectory(
 # External dependencies
 # ==============================================================================
 
+# FFTW3f: single-precision FFTW API used by the DSP engine.
 find_package(FFTW3f CONFIG REQUIRED)
 
 # ==============================================================================
@@ -107,15 +116,22 @@ target_include_directories(DtBlkFxEngine PUBLIC
 target_compile_features(DtBlkFxEngine PUBLIC cxx_std_17)
 target_link_libraries(DtBlkFxEngine PUBLIC FFTW3::fftw3f)
 
+# ==============================================================================
+# Automated tests
+# ==============================================================================
+
 include(CTest)
+
 if(BUILD_TESTING)
+
     add_executable(DtBlkFxEngineTests
         tests/DtBlkFxEngineTests.cpp
     )
     target_link_libraries(DtBlkFxEngineTests PRIVATE DtBlkFxEngine)
     add_test(NAME DtBlkFxEngineTests COMMAND DtBlkFxEngineTests)
 
-    # Robustness tests: all effects, FFT sizes, sample rates, block sizes, reset, API misuse.
+    # Robustness tests: all effects, FFT sizes, sample rates, block sizes,
+    # reset behavior and API misuse.
     add_executable(DtBlkFxRobustnessTests
         tests/DtBlkFxRobustnessTests.cpp
     )
@@ -123,7 +139,8 @@ if(BUILD_TESTING)
     add_test(NAME DtBlkFxRobustnessTests COMMAND DtBlkFxRobustnessTests)
     set_tests_properties(DtBlkFxRobustnessTests PROPERTIES TIMEOUT 900)
 
-    # Parameter tests: hostile values, automation storms, extreme tempo, FFT and delay sweeps.
+    # Parameter tests: hostile values, automation storms, extreme tempo,
+    # FFT and delay sweeps.
     add_executable(DtBlkFxParameterTests
         tests/DtBlkFxParameterTests.cpp
     )
@@ -131,7 +148,7 @@ if(BUILD_TESTING)
     add_test(NAME DtBlkFxParameterTests COMMAND DtBlkFxParameterTests)
     set_tests_properties(DtBlkFxParameterTests PROPERTIES TIMEOUT 900)
 
-    # Host timing tests: tempo and beat-grid tracking, and block-sync alignment in the engine.
+    # Host timing tests: tempo and beat-grid tracking, block-sync alignment.
     add_executable(DtBlkFxHostTimingTests
         tests/DtBlkFxHostTimingTests.cpp
     )
@@ -139,8 +156,8 @@ if(BUILD_TESTING)
     add_test(NAME DtBlkFxHostTimingTests COMMAND DtBlkFxHostTimingTests)
     set_tests_properties(DtBlkFxHostTimingTests PROPERTIES TIMEOUT 600)
 
-    # Fixed latency tests: the delay does not depend on the FFT size, and changing the FFT size
-    # while playing does not move, double or drop audio.
+    # Fixed latency tests: delay independence from FFT size and safe FFT
+    # size changes during playback.
     add_executable(DtBlkFxFixedLatencyTests
         tests/DtBlkFxFixedLatencyTests.cpp
     )
@@ -148,26 +165,32 @@ if(BUILD_TESTING)
     add_test(NAME DtBlkFxFixedLatencyTests COMMAND DtBlkFxFixedLatencyTests)
     set_tests_properties(DtBlkFxFixedLatencyTests PROPERTIES TIMEOUT 900)
 
-    # Diagnostic (not a test, never run by ctest): measures the delay of the new engine and of
-    # the legacy VST2 plugin at steady settings and while the FFT size changes.
+endif()
+
+# ==============================================================================
+# DSP diagnostic applications
+# ==============================================================================
+
+if(DTBLKFX_BUILD_DIAGNOSTICS)
+
+    # Diagnostic: measures delay of the new engine and legacy VST2 plugin.
     add_executable(DtBlkFxFftSwitchDiagnostic
         tests/DtBlkFxFftSwitchDiagnostic.cpp
     )
     target_link_libraries(DtBlkFxFftSwitchDiagnostic PRIVATE DtBlkFxEngine)
 
-    # Effect comparison (not a test, never run by ctest): renders the same audio through the
-    # legacy VST2 plugin and through the new engine and compares level, correlation and spectrum.
+    # Comparison: renders identical audio through legacy and new engines.
     add_executable(DtBlkFxEffectComparison
         tests/DtBlkFxEffectComparison.cpp
     )
     target_link_libraries(DtBlkFxEffectComparison PRIVATE DtBlkFxEngine)
 
-    # Effect probe (not a test, never run by ctest): one effect through both plugins, with the
-    # spectral peaks or octave bands printed and optional WAV files for listening.
+    # Probe: compares one effect and optionally writes WAV files.
     add_executable(DtBlkFxEffectProbe
         tests/DtBlkFxEffectProbe.cpp
     )
     target_link_libraries(DtBlkFxEffectProbe PRIVATE DtBlkFxEngine)
+
 endif()
 
 # ==============================================================================
@@ -197,7 +220,7 @@ juce_add_plugin(DtBlkFx
     # VST3 category
     VST3_CATEGORIES Fx
 
-    # Plugin configuration
+    # Avoid modifying a developer's plugin installation.
     COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
@@ -215,6 +238,7 @@ clap_juce_extensions_plugin(
     CLAP_FEATURES audio-effect filter frequency-shifter glitch
 )
 
+# Stage the FFTW runtime for the dynamic Windows triplet.
 if(WIN32 AND VCPKG_TARGET_TRIPLET STREQUAL "x64-windows")
     foreach(plugin_target IN ITEMS DtBlkFx_VST3 DtBlkFx_CLAP)
         add_custom_command(TARGET ${plugin_target} POST_BUILD
@@ -232,7 +256,6 @@ endif()
 # ==============================================================================
 
 target_sources(DtBlkFx PRIVATE
-
     src/DtBlkFxEditor.cpp
     src/DtBlkFxProcessor.cpp
 )
@@ -242,7 +265,6 @@ target_sources(DtBlkFx PRIVATE
 # ==============================================================================
 
 target_compile_definitions(DtBlkFx PUBLIC
-
     JUCE_REPORT_APP_USAGE=0
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
@@ -255,32 +277,31 @@ target_compile_definitions(DtBlkFx PUBLIC
 
 target_compile_features(DtBlkFx PRIVATE cxx_std_17)
 
-# JUCE recommended compiler settings.
 target_link_libraries(DtBlkFx PRIVATE
-
     juce::juce_audio_utils
-
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
     juce::juce_recommended_lto_flags
-
     DtBlkFxEngine
 )
 
 # ==============================================================================
-# JUCE-linked tests (they compile the real processor, unlike the engine tests)
-#   - DtBlkFxProcessorTests: parameter mapping and end-to-end audio
-#   - DtBlkFxStateTests:     state save/load, damaged state, parameter resolution, automation
-#   - DtBlkFxHostTests:      host playhead (tempo, beat position), latency, tail, sample rates
+# JUCE-linked tests
+# These compile the real processor, independently of plugin packaging.
 # ==============================================================================
 
 if(BUILD_TESTING)
-    foreach(juce_test_name IN ITEMS DtBlkFxProcessorTests DtBlkFxStateTests DtBlkFxHostTests)
+
+    foreach(juce_test_name IN ITEMS
+        DtBlkFxProcessorTests
+        DtBlkFxStateTests
+        DtBlkFxHostTests
+    )
+
         juce_add_console_app(${juce_test_name}
             PRODUCT_NAME "${juce_test_name}"
         )
 
-        # The processor is compiled again here so the tests do not depend on plugin packaging.
         target_sources(${juce_test_name} PRIVATE
             tests/${juce_test_name}.cpp
             src/DtBlkFxProcessor.cpp
@@ -291,7 +312,6 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/src"
         )
 
-        # These come from juce_add_plugin for the real plugin; supply them for the test build.
         target_compile_definitions(${juce_test_name} PRIVATE
             "JucePlugin_Name=\"DtBlkFx\""
             JucePlugin_IsMidiEffect=0
@@ -311,7 +331,9 @@ if(BUILD_TESTING)
 
         add_test(NAME ${juce_test_name} COMMAND ${juce_test_name})
         set_tests_properties(${juce_test_name} PROPERTIES TIMEOUT 600)
+
     endforeach()
+
 endif()
 
 # ==============================================================================
@@ -321,17 +343,17 @@ endif()
 message(STATUS "========================================")
 message(STATUS "RenewDtBlkFx configuration")
 message(STATUS "========================================")
-message(STATUS "Version:       ${PROJECT_VERSION}")
-message(STATUS "C++ standard:  ${CMAKE_CXX_STANDARD}")
-message(STATUS "Build type:    ${CMAKE_BUILD_TYPE}")
-message(STATUS "System:        ${CMAKE_SYSTEM_NAME}")
-message(STATUS "Processor:     ${CMAKE_SYSTEM_PROCESSOR}")
-message(STATUS "VST3:          Enabled")
-message(STATUS "CLAP:          Enabled")
-message(STATUS "FFTW3:         Required")
-if(BUILD_TESTING)
-    message(STATUS "Tests:         Engine + robustness + parameter + host timing + fixed latency + processor + state + host")
-else()
-    message(STATUS "Tests:         Disabled (BUILD_TESTING is off)")
-endif()
+message(STATUS "Version:          ${PROJECT_VERSION}")
+message(STATUS "C++ standard:     ${CMAKE_CXX_STANDARD}")
+message(STATUS "Build type:       ${CMAKE_BUILD_TYPE}")
+message(STATUS "System:           ${CMAKE_SYSTEM_NAME}")
+message(STATUS "Processor:        ${CMAKE_SYSTEM_PROCESSOR}")
+message(STATUS "OSX architecture: ${CMAKE_OSX_ARCHITECTURES}")
+message(STATUS "Deployment target:${CMAKE_OSX_DEPLOYMENT_TARGET}")
+message(STATUS "vcpkg triplet:    ${VCPKG_TARGET_TRIPLET}")
+message(STATUS "VST3:             Enabled")
+message(STATUS "CLAP:             Enabled")
+message(STATUS "FFTW3f:           Required")
+message(STATUS "Testing:          ${BUILD_TESTING}")
+message(STATUS "Diagnostics:      ${DTBLKFX_BUILD_DIAGNOSTICS}")
 message(STATUS "========================================")

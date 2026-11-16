@@ -1,6 +1,11 @@
 # CMake and JUCE build products. The presets write all generated builds here.
 /build/
+
+# PlugiVal executable
 /tools/pluginval/
+
+# VCPKG on Macos
+/vcpkg_installed/
 
 # CMake-generated files that may appear if a build is configured in the source tree.
 CMakeFiles/
