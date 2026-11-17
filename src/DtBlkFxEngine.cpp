@@ -1973,12 +1973,26 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect, int channe
                                     destinationValue.imaginary * destinationValue.imaginary;
       const auto magnitude = std::pow(std::max(sourcePower, 1.0e-30f), sourceExponent) *
                              std::pow(std::max(destinationPower, 1.0e-30f), destinationExponent);
-      const auto sourcePhase = std::atan2(sourceValue.imaginary, sourceValue.real);
-      const auto destinationPhase = std::atan2(destinationValue.imaginary, destinationValue.real);
-      const auto phase = sourcePhase * (1.0f - mix) + destinationPhase * mix;
+      // Phase from the weighted sum of the two bins (loud bins dominate the phase). Deliberate
+      // deviation from legacy CrossMixProcess, which averages the wrapped angles
+      // (angle(src) * mixSrc + angle(dst) * mixDst). That average is biased towards 0, which puts
+      // an impulse at the frame start; the 16-sample fade-in cut it and cost about 0.54 dB at
+      // mid mix (testCrossMixKeepsLevel).
+      auto directionReal = sourceValue.real * (1.0f - mix) + destinationValue.real * mix;
+      auto directionImaginary = sourceValue.imaginary * (1.0f - mix) + destinationValue.imaginary * mix;
+      auto directionLength = std::sqrt(directionReal * directionReal + directionImaginary * directionImaginary);
+      if (directionLength < 1.0e-12f) {
+        // Opposite phases cancel: fall back to the dominant input (destination on a tie).
+        const auto useSource = (1.0f - mix) > mix;
+        directionReal = useSource ? sourceValue.real : destinationValue.real;
+        directionImaginary = useSource ? sourceValue.imaginary : destinationValue.imaginary;
+        directionLength = std::sqrt(directionReal * directionReal + directionImaginary * directionImaginary);
+      }
+      const auto cosPhase = directionLength > 0.0f ? directionReal / directionLength : 1.0f;
+      const auto sinPhase = directionLength > 0.0f ? directionImaginary / directionLength : 0.0f;
       destination[static_cast<size_t>(bin)] = {
-          destinationValue.real * mixBack + outputGain * magnitude * std::cos(phase),
-          destinationValue.imaginary * mixBack + outputGain * magnitude * std::sin(phase)};
+          destinationValue.real * mixBack + outputGain * magnitude * cosPhase,
+          destinationValue.imaginary * mixBack + outputGain * magnitude * sinPhase};
     }
   };
 
