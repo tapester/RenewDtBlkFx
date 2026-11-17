@@ -73,6 +73,9 @@ bool DtBlkFxEngine::prepare(int fftSizeIndex, double sampleRate)
     bins.reserve(maximumBinCount);
     remapSource.reserve(maximumBinCount);
     remapAccumulator.reserve(maximumBinCount);
+    warpInput0.reserve(maximumBinCount + 1);
+    warpInput1.reserve(maximumBinCount + 1);
+    warpOutput.reserve(maximumBinCount + 1);
     selectionMask.reserve(maximumBinCount);
     remapSource.resize(static_cast<size_t>(fftBinCount(fftSize)));
     remapAccumulator.resize(static_cast<size_t>(fftBinCount(fftSize)));
@@ -127,6 +130,9 @@ void DtBlkFxEngine::release() noexcept
   bins.clear();
   remapSource.clear();
   remapAccumulator.clear();
+  warpInput0.clear();
+  warpInput1.clear();
+  warpOutput.clear();
   selectionMask.clear();
   effectMask.clear();
   parameterEvents.clear();
@@ -359,7 +365,6 @@ bool DtBlkFxEngine::process(float* const* channels, int channelCount, int sample
 
   // Consume and emit one sample at a time so frame boundaries remain independent of host block size.
   for (int sample = 0; sample < sampleCount; ++sample) {
-    std::array<double, 2> inputPowers{};
     for (int channel = 0; channel < channelCount; ++channel) {
       auto& state = channelStates[static_cast<size_t>(channel)];
       state.inputFrame[samplesProcessed % static_cast<size_t>(maxFftSize)] = channels[channel][sample];
@@ -483,7 +488,8 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
   }
   fadeInSamples = std::clamp<std::int64_t>(fadeInSamples, 0, timeWindowSamples);
 
-  std::array<double, 2> inputPowers{};
+  auto& inputPowers = frameInputPowers;
+  inputPowers = {};
   for (int channel = 0; channel < channelCount; ++channel) {
     auto& state = channelStates[static_cast<size_t>(channel)];
     for (int sample = 0; sample < fftSize; ++sample) {
@@ -525,7 +531,11 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
       continue;
 
     if (effect.type >= 26 && effect.type <= 30) {
+<<<<<<< HEAD
       applyStereoEffect(effect, channelCount, inputPowers);
+=======
+      applyStereoEffect(effect, channelCount, nextFrameStart);
+>>>>>>> a4897ae8757a1b938fea0348bf028fd03fab2fbe
       continue;
     }
 
@@ -1698,10 +1708,19 @@ void DtBlkFxEngine::applySweep(const EffectParameters& effect) noexcept
 
 void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
                                       int channelCount,
+<<<<<<< HEAD
                                       std::array<double, 2>& targetPowers) noexcept
+=======
+                                      size_t frameStart) noexcept
+>>>>>>> a4897ae8757a1b938fea0348bf028fd03fab2fbe
 {
   if (channelCount != 2 || effect.type < 26 || effect.type > 30)
     return;
+
+  if (effect.type == 30) {
+    applyWarpMix(effect, frameStart);
+    return;
+  }
 
   const auto binCount = fftBinCount(fftSize);
   const auto maximumBin = binCount - 1;
@@ -1919,8 +1938,7 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
     return;
   }
 
-  // CrossMix (29). WarpMix (30) shares this code as a stand-in: the legacy WarpMix is a different
-  // algorithm that has not been ported.
+  // CrossMix (29). WarpMix (30) has its own implementation (applyWarpMix).
   const auto value = std::isfinite(effect.value) ? std::clamp(effect.value, 0.0f, 1.0f) : 0.5f;
   const auto reverse = value >= 0.5f;
   const auto mix = reverse ? (value - 0.5f) * 2.0f : value * 2.0f;
@@ -1929,8 +1947,8 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
   // Exponents on the squared magnitude, as in the legacy plugin: raise = clamp(1.6 * fraction, 0, 1) * 0.5.
   const auto sourceExponent = std::clamp(0.8f * (1.0f - mix), 0.0f, 0.5f);
   const auto destinationExponent = std::clamp(0.8f * mix, 0.0f, 0.5f);
-  // The legacy CrossMix amplitude is a plain gain. Only the WarpMix stand-in blends the original back in.
-  const auto mixBack = effect.type == 29 ? 0.0f : std::max(1.0f - gain, 0.0f);
+  // The legacy CrossMix amplitude is a plain gain; the original is not blended back in.
+  const auto mixBack = 0.0f;
 
   // Mixes the bins runFirst..runLast (one contiguous run of selected bins).
   int processedBins = 0;
@@ -1981,12 +1999,26 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
                                     destinationValue.imaginary * destinationValue.imaginary;
       const auto magnitude = std::pow(std::max(sourcePower, 1.0e-30f), sourceExponent) *
                              std::pow(std::max(destinationPower, 1.0e-30f), destinationExponent);
-      const auto sourcePhase = std::atan2(sourceValue.imaginary, sourceValue.real);
-      const auto destinationPhase = std::atan2(destinationValue.imaginary, destinationValue.real);
-      const auto phase = sourcePhase * (1.0f - mix) + destinationPhase * mix;
+      // Phase from the weighted sum of the two bins (loud bins dominate the phase). Deliberate
+      // deviation from legacy CrossMixProcess, which averages the wrapped angles
+      // (angle(src) * mixSrc + angle(dst) * mixDst). That average is biased towards 0, which puts
+      // an impulse at the frame start; the 16-sample fade-in cut it and cost about 0.54 dB at
+      // mid mix (testCrossMixKeepsLevel).
+      auto directionReal = sourceValue.real * (1.0f - mix) + destinationValue.real * mix;
+      auto directionImaginary = sourceValue.imaginary * (1.0f - mix) + destinationValue.imaginary * mix;
+      auto directionLength = std::sqrt(directionReal * directionReal + directionImaginary * directionImaginary);
+      if (directionLength < 1.0e-12f) {
+        // Opposite phases cancel: fall back to the dominant input (destination on a tie).
+        const auto useSource = (1.0f - mix) > mix;
+        directionReal = useSource ? sourceValue.real : destinationValue.real;
+        directionImaginary = useSource ? sourceValue.imaginary : destinationValue.imaginary;
+        directionLength = std::sqrt(directionReal * directionReal + directionImaginary * directionImaginary);
+      }
+      const auto cosPhase = directionLength > 0.0f ? directionReal / directionLength : 1.0f;
+      const auto sinPhase = directionLength > 0.0f ? directionImaginary / directionLength : 0.0f;
       destination[static_cast<size_t>(bin)] = {
-          destinationValue.real * mixBack + outputGain * magnitude * std::cos(phase),
-          destinationValue.imaginary * mixBack + outputGain * magnitude * std::sin(phase)};
+          destinationValue.real * mixBack + outputGain * magnitude * cosPhase,
+          destinationValue.imaginary * mixBack + outputGain * magnitude * sinPhase};
     }
   };
 
@@ -2019,6 +2051,233 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
   left = destination;
   right = destination;
 }
+<<<<<<< HEAD
+=======
+void DtBlkFxEngine::applyWarpMix(const EffectParameters& effect, size_t frameStart) noexcept
+{
+  // Port of the legacy WeirdMixProcess (effect "WarpMix"). The amplitude parameter is a distortion
+  // amount here, not a gain: below 0 dB it is a linear 0..1 factor (legacy getEffectAmpMult with
+  // mix mode), above it a plain gain on the result.
+  const auto binCount = fftBinCount(fftSize);
+  const auto maximumBin = binCount - 1;
+  const auto firstFrequencyBin = getFrequencyBin(effect.frequencyA);
+  const auto secondFrequencyBin = getFrequencyBin(effect.frequencyB);
+  const auto firstBin = std::min(firstFrequencyBin, secondFrequencyBin);
+  const auto lastBin = std::min(std::max(firstFrequencyBin, secondFrequencyBin), maximumBin);
+  auto& left = channelStates[0].spectrum;
+  auto& right = channelStates[1].spectrum;
+
+  const auto value = std::isfinite(effect.value) ? std::clamp(effect.value, 0.0f, 1.0f) : 0.5f;
+  const auto mode1 = value >= 0.5f;
+  const auto mixRatio = mode1 ? (value - 0.5f) * 2.0f : value * 2.0f;
+
+  const auto amplitudeParameter =
+      std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
+  constexpr float zeroDbParameter = 0.6f;
+  auto amplitude = amplitudeParameter < zeroDbParameter
+                       ? amplitudeParameter * (1.0f / zeroDbParameter)
+                       : std::pow(10.0f, (amplitudeParameter * 100.0f - 60.0f) * 0.05f);
+  auto valuePowerScale = 1.0e8f / static_cast<float>(fftSize);
+  auto segmentCount = 4.0f;
+  if (amplitude < 1.0f) {
+    amplitude *= amplitude;
+    valuePowerScale *= amplitude;
+    segmentCount = 1.0f + (segmentCount - 1.0f) * amplitude;
+    amplitude = 1.0f;
+  }
+
+  const auto norm = [](std::complex<float> v) { return v.real() * v.real() + v.imag() * v.imag(); };
+  const auto roundToInt = [](float v) { return static_cast<int>(std::floor(v + 0.5f)); };
+  constexpr double twoPi = 6.28318530717958647692;
+  const auto framePhase = static_cast<double>(frameStart % static_cast<size_t>(fftSize));
+  auto binsProcessed = 0;
+
+  const auto mixRun = [&](int runFirst, int runLast) {
+    const auto count = runLast - runFirst + 1;
+    binsProcessed += count;
+    // One extra bin: the legacy loop reads the bin after the run when it steps off the last point.
+    warpInput0.resize(static_cast<size_t>(count) + 1);
+    warpInput1.resize(static_cast<size_t>(count) + 1);
+    warpOutput.resize(static_cast<size_t>(count));
+    for (int i = 0; i <= count; ++i) {
+      const auto bin = std::min(runFirst + i, maximumBin);
+      warpInput0[static_cast<size_t>(i)] = {left[static_cast<size_t>(bin)].real,
+                                            left[static_cast<size_t>(bin)].imaginary};
+      warpInput1[static_cast<size_t>(i)] = {right[static_cast<size_t>(bin)].real,
+                                            right[static_cast<size_t>(bin)].imaginary};
+    }
+    const std::complex<float>* input[2] = {warpInput0.data(), warpInput1.data()};
+
+    if (!mode1) {
+      // Mode 0: morph one spectral curve into the other along their (log-compressed) arc length.
+      float lengthMultiplier[2];
+      for (int channel = 0; channel < 2; ++channel) {
+        float totalLength = 0.0f;
+        auto previous = input[channel][0];
+        for (int i = 1; i < count; ++i) {
+          totalLength += std::log(valuePowerScale * norm(input[channel][i] - previous) + 2.7183f);
+          previous = input[channel][i];
+        }
+        if (totalLength <= 0.0f)
+          totalLength = 1.0f;
+        lengthMultiplier[channel] = 1.0f / totalLength;
+      }
+
+      std::complex<float> valueDelta[2] = {{0.0f, 0.0f}, {0.0f, 0.0f}};
+      std::complex<float> current[2] = {input[0][0], input[1][0]};
+      std::complex<float> lerpValue{0.0f, 0.0f};
+      std::complex<float> previousLerpValue{0.0f, 0.0f};
+      int position[2] = {0, 0};
+      float index[2] = {0.0f, 0.0f};
+      float length[2] = {0.0f, 0.0f};
+      float segmentMultiplier[2] = {0.0f, 0.0f};
+      float lerpIndex = -1.0f;
+      float previousLerpIndex = -1.0f;
+      for (int outIndex = 0; outIndex < count; ++outIndex) {
+        // Bounded: every pass either advances a curve or stops at the end of curve "a".
+        for (int guard = 0; lerpIndex <= static_cast<float>(outIndex) && guard < 2 * count + 4;
+             ++guard) {
+          int a = 0;
+          auto ratio = mixRatio;
+          if (!(length[0] < length[1])) {
+            a = 1;
+            ratio = 1.0f - mixRatio;
+          }
+          const auto b = 1 - a;
+          const auto fraction = (length[b] - length[a]) * segmentMultiplier[b];
+          const auto indexB = index[b] - fraction;
+          const auto valueB = current[b] - fraction * valueDelta[b];
+          previousLerpIndex = lerpIndex;
+          previousLerpValue = lerpValue;
+          lerpIndex = index[a] + (indexB - index[a]) * ratio;
+          lerpValue = current[a] + (valueB - current[a]) * ratio;
+          if (position[a] >= count)
+            break;
+          ++index[a];
+          ++position[a];
+          const auto next = input[a][position[a]];
+          valueDelta[a] = next - current[a];
+          const auto step =
+              std::log(valuePowerScale * norm(valueDelta[a]) + 2.7183f) * lengthMultiplier[a];
+          length[a] += step;
+          current[a] = next;
+          if (step > 0.0f)
+            segmentMultiplier[a] = 1.0f / step;
+        }
+        std::complex<float> out;
+        if (lerpIndex != previousLerpIndex) {
+          const auto fraction = (lerpIndex - static_cast<float>(outIndex)) /
+                                (lerpIndex - previousLerpIndex);
+          out = (lerpValue + (previousLerpValue - lerpValue) * fraction) * amplitude;
+        }
+        else {
+          out = lerpValue * amplitude;
+        }
+        warpOutput[static_cast<size_t>(outIndex)] = out;
+      }
+    }
+    else {
+      // Mode 1: cut both runs into segments of equal power and stretch/mix the segments.
+      float powerPerSegment[2] = {0.0f, 0.0f};
+      for (int channel = 0; channel < 2; ++channel) {
+        float power = 0.0f;
+        for (int i = 0; i < count; ++i)
+          power += norm(input[channel][i]);
+        powerPerSegment[channel] = power / segmentCount;
+      }
+      constexpr float minimumValue = 1.0e-10f;
+      float mixLimit[2] = {0.0f, 1.0f};
+      if (powerPerSegment[0] < minimumValue)
+        mixLimit[0] = 1.0f + (0.0f - 1.0f) * (powerPerSegment[0] / minimumValue);
+      if (powerPerSegment[1] < minimumValue)
+        mixLimit[1] = 0.0f + (1.0f - 0.0f) * (powerPerSegment[1] / minimumValue);
+      if (mixLimit[1] < mixLimit[0])
+        std::swap(mixLimit[0], mixLimit[1]);
+      const auto ratio = mixLimit[0] + (mixLimit[1] - mixLimit[0]) * mixRatio;
+
+      int segmentStart[2] = {0, 0};
+      int segmentEnd[2] = {0, 0};
+      int destinationBin = 0;
+      while (destinationBin < count) {
+        for (int channel = 0; channel < 2; ++channel) {
+          float accumulated = 0.0f;
+          while (accumulated <= powerPerSegment[channel] && segmentEnd[channel] < count)
+            accumulated += norm(input[channel][segmentEnd[channel]++]);
+        }
+        auto stopBin = roundToInt(static_cast<float>(segmentEnd[0]) +
+                                  (static_cast<float>(segmentEnd[1]) -
+                                   static_cast<float>(segmentEnd[0])) *
+                                      ratio);
+        if (stopBin <= destinationBin)
+          stopBin = destinationBin + 1;
+        stopBin = std::min(stopBin, count);
+
+        const auto destinationLength = static_cast<float>(stopBin - destinationBin) + 1.0f;
+        float sourceBin[2];
+        float step[2];
+        for (int channel = 0; channel < 2; ++channel) {
+          sourceBin[channel] = static_cast<float>(segmentStart[channel]);
+          step[channel] =
+              static_cast<float>(segmentEnd[channel] - segmentStart[channel]) / destinationLength;
+        }
+        for (; destinationBin < stopBin; ++destinationBin) {
+          std::complex<float> sum[2] = {{0.0f, 0.0f}, {0.0f, 0.0f}};
+          for (int channel = 0; channel < 2; ++channel) {
+            sourceBin[channel] += step[channel];
+            const auto end = std::min(roundToInt(sourceBin[channel]), count);
+            auto shift = destinationBin - segmentStart[channel];
+            while (segmentStart[channel] < end) {
+              // Phase correction for the bin shift, from the absolute frame position.
+              const auto turns = std::remainder(
+                  framePhase * static_cast<double>(shift) / static_cast<double>(fftSize), 1.0);
+              const std::complex<float> correction{
+                  static_cast<float>(std::cos(twoPi * turns)),
+                  static_cast<float>(std::sin(twoPi * turns))};
+              sum[channel] += input[channel][segmentStart[channel]++] * correction;
+              --shift;
+            }
+          }
+          warpOutput[static_cast<size_t>(destinationBin)] =
+              (sum[0] + (sum[1] - sum[0]) * ratio) * amplitude;
+        }
+      }
+    }
+
+    for (int i = 0; i < count; ++i) {
+      const auto bin = static_cast<size_t>(runFirst + i);
+      left[bin] = {warpOutput[static_cast<size_t>(i)].real(),
+                   warpOutput[static_cast<size_t>(i)].imag()};
+      right[bin] = left[bin];
+    }
+  };
+
+  int runStart = -1;
+  for (int bin = std::max(1, firstBin); bin <= lastBin + 1; ++bin) {
+    const auto selected = bin <= lastBin && isEffectBinSelected(bin);
+    if (selected && runStart < 0) {
+      runStart = bin;
+      continue;
+    }
+    if (selected || runStart < 0)
+      continue;
+    mixRun(runStart, bin - 1);
+    runStart = -1;
+  }
+
+  // Both channels carry the same spectrum afterwards. Legacy done(): move the power target of both
+  // channels towards the mixed power in proportion to the bins that were processed.
+  for (int bin = 0; bin < binCount; ++bin)
+    right[static_cast<size_t>(bin)] = left[static_cast<size_t>(bin)];
+  const auto mixedPower = frameInputPowers[0] + (frameInputPowers[1] - frameInputPowers[0]) * mixRatio;
+  // The DC bin is not mixed (as in CrossMix) but counts as processed when it lies in the range,
+  // since the legacy run starts at the first selected bin including DC.
+  if (firstBin <= 0 && isEffectBinSelected(0))
+    ++binsProcessed;
+  const auto processedFraction = static_cast<double>(binsProcessed) / static_cast<double>(binCount);
+  for (auto& power : frameInputPowers)
+    power += (mixedPower - power) * processedFraction;
+}
+>>>>>>> a4897ae8757a1b938fea0348bf028fd03fab2fbe
 
 void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t frameStart) noexcept
 {

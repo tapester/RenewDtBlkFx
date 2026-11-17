@@ -22,6 +22,7 @@ für jeden Fall `NO-REF`.
 ```
 python tests/reference_compare/tools/refcmp.py gen --workdir work --presets <legacy>/resources/stereo_presets.txt
 ```
+<<<<<<< HEAD
 
 erzeugt `work/signals/*.wav` (5 Signale, 44,1 kHz, 6 s Inhalt + 4 s Stille) und `work/cases.json`.
 
@@ -34,6 +35,13 @@ uv run tests\reference_compare\tools\refcmp.py gen --workdir work --presets lega
 **1. Engine rendern** (ohne JUCE, nur FFTW3f):
 ```
 cmake -S tests/reference_compare/engine_render -B build-refrender -DCMAKE_TOOLCHAIN_FILE=modules/vcpkg/scripts/buildsystems/vcpkg.cmake
+=======
+erzeugt `work/signals/*.wav` (5 Signale, 44,1 kHz, 6 s Inhalt + 4 s Stille) und `work/cases.json`.
+
+**1. Engine rendern** (ohne JUCE, nur FFTW3f):
+```
+cmake -S tests/reference_compare/engine_render -B build-refrender -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
+>>>>>>> a4897ae8757a1b938fea0348bf028fd03fab2fbe
 cmake --build build-refrender --config Release
 python tests/reference_compare/tools/refcmp.py render-engine --workdir work --engine-bin build-refrender/render_engine
 ```
@@ -42,7 +50,11 @@ python tests/reference_compare/tools/refcmp.py render-engine --workdir work --en
 FFTW- und libpng-DLLs neben die DLL legen). Bitness von Host und DLL muss übereinstimmen; für
 Stereo-Signale die Stereo-Variante verwenden.
 ```
+<<<<<<< HEAD
 cl /EHsc /O2 /I legacy_src\dtblkfx\vstsdk\source\vst2.x tests\reference_compare\legacy_render\vst2_render_host.cpp /Fe:vst2_render_host.exe
+=======
+cl /EHsc /O2 /I <VST2-SDK>\pluginterfaces\vst2.x tests\reference_compare\legacy_render\vst2_render_host.cpp /Fe:vst2_render_host.exe
+>>>>>>> a4897ae8757a1b938fea0348bf028fd03fab2fbe
 python tests\reference_compare\tools\refcmp.py render-legacy --workdir work --host vst2_render_host.exe --dll DtBlkFx.dll
 ```
 Alternativ in einem beliebigen Host rendern: Eingabedatei aus `work/signals/`, die 44 Werte des

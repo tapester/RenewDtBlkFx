@@ -399,9 +399,22 @@ processed spectrum.
 The frequency remappers use a normalized five-bin Lagrange interpolation
 kernel for fractional FFT-bin shifts; this is not yet verified against
 the legacy kernel. Fundamental tracking and stereo effect algorithms
-still need comparison against legacy reference renders. In particular,
-the WarpMix implementation is an approximation. The live spectrogram
-has not yet been ported.
+still need comparison against legacy reference renders. The live
+spectrogram has not yet been ported.
+
+Porting status of the stereo effects: Vocode, HarmMatch L>R/R>L, CrossMix,
+and WarpMix are ported from the legacy algorithms. CrossMix derives the
+phase from the weighted sum of the two bins instead of the legacy
+averaged angles, because averaging wrapped angles biases the phase towards
+0 and creates an impulse at the frame start that cost about 0.54 dB at
+mid mix; this is a deliberate sound deviation. WarpMix follows the legacy
+`WeirdMixProcess` (mode 0 curve morphing, mode 1 power-segment stretching
+with bin-shift phase correction); the amplitude control is a distortion
+amount (linear below 0 dB) and the legacy power-target adjustment is
+applied. DC is not mixed (as in CrossMix). Two details are not verified
+against legacy renders: the bin-shift phase correction uses an exact
+sine/cosine instead of the legacy 4096-entry table, and WarpMix level
+relies on Match mode (Power control) as in the legacy engine.
 
 A standalone single-precision FFT workspace provides all legacy FFT sizes
 and a 44-value parameter snapshot.
@@ -467,9 +480,9 @@ CrossMix, and WarpMix) now run jointly across both channel spectra.
 
 These new effects are tested for deterministic behavior, mask selection,
 and stereo mixing, but their legacy parity is unverified without reference
-renders. WarpMix is an approximation of the legacy curve morphing
-algorithm, and mask boundary details and stereo automation still need
-reference-based refinement.
+renders. Mask boundary details and stereo automation still need
+reference-based refinement. The harness in `tests/reference_compare`
+renders both implementations from the same 44 parameters for this purpose.
 
 At startup, the first output frame is placed at the sum of frame-collection
 latency and configured delay; the 16-sample startup fade makes its first
@@ -502,9 +515,9 @@ behaviors, not claims of legacy output parity.
    then compare the JUCE port using identical inputs and parameters.
    Verify the five-bin frequency-remapping kernel, fundamental tracking,
    Shift's low-frequency peak alignment, mask boundaries, Sweep
-   interpolation, and stereo effect behavior. WarpMix still approximates
-   the legacy curve-warping algorithm; parity remains unverified without
-   reference renders.
+   interpolation, and stereo effect behavior (including WarpMix and the
+   CrossMix phase change). Parity remains unverified without reference
+   renders; use `tests/reference_compare` once legacy renders exist.
 
 3. **Validate scheduler and automation compatibility:** compare startup,
    latency, and delay transitions against legacy renders. The legacy VST
