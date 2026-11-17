@@ -808,7 +808,8 @@ void testCrossMixKeepsLevel()
   if (!check(engine.prepare(plan, rate), "prepare failed"))
     return;
 
-  for (const int type : {29, 30}) {
+  // WarpMix (30) is a different algorithm and is covered by testWarpMix.
+  for (const int type : {29}) {
     for (const float scale : {1.0f, 0.05f}) {
       for (const float value : values) {
         Slots slots{};
@@ -857,6 +858,61 @@ void testCrossMixKeepsLevel()
     }
   }
 }
+// WarpMix (legacy WeirdMixProcess): both channels carry the same spectrum afterwards and, with power
+// matching on, the output level follows the mix of the two input levels (legacy done()).
+void testWarpMix()
+{
+  constexpr double rate = 44100.0;
+  constexpr int plan = 16; // FFT 4096
+  constexpr int fft = 4096;
+  constexpr int hop = fft - 16; // overlap 0
+  constexpr int latency = fft - 1 + 100;
+
+  DtBlkFxEngine engine;
+  if (!check(engine.prepare(plan, rate), "prepare failed"))
+    return;
+
+  for (const float amplitude : {0.6f, 0.3f, 0.0f, 0.8f}) {
+    for (const float value : {0.0f, 0.2f, 0.4f, 0.5f, 0.6f, 0.8f, 1.0f}) {
+      Slots slots{};
+      slots[0] = Slot{30, 0.0f, 1.0f, amplitude, value};
+
+      RenderSetup setup;
+      setup.params = makeParams(slots, plan, 0.0f, 0.0f, 0.0f); // power match on, no original mixed back
+      setup.samplesPerBeat = rate * 0.5;
+
+      const int total = totalSamples(plan, 100, 8);
+      Channels input{makeSignal(Signal::NoiseFull, total, 11u, rate), makeSignal(Signal::NoiseHalf, total, 22u, rate)};
+      engine.reset();
+      Channels output;
+      const auto label = "WarpMix amplitude " + std::to_string(amplitude) + ", value " + std::to_string(value);
+      if (!check(renderEngine(engine, setup, input, output, std::vector<int>{512}), label + ": processing failed"))
+        continue;
+      check(allFinite(output[0]) && allFinite(output[1]), label + ": non-finite output");
+
+      const auto power = [](const std::vector<float>& data, int from, int to) {
+        double sum = 0.0;
+        for (int i = from; i < to; ++i)
+          sum += static_cast<double>(data[static_cast<size_t>(i)]) * data[static_cast<size_t>(i)];
+        return sum / (to - from);
+      };
+      const auto mix = value >= 0.5f ? (value - 0.5f) * 2.0f : value * 2.0f;
+      const auto expected = (1.0 - mix) * power(input[0], 2 * hop, 6 * hop) + mix * power(input[1], 2 * hop, 6 * hop);
+      const auto measured = power(output[0], latency + 2 * hop, latency + 6 * hop);
+      check(measured > 0.0, label + ": silent output");
+      if (measured > 0.0) {
+        // Frame edges and the cross-fade cost a little level; the phase of WarpMix is not unit weighted.
+        const auto errorDb = 10.0 * std::log10(measured / expected);
+        check(std::abs(errorDb) < 1.5,
+              label + ": output power is " + std::to_string(errorDb) + " dB away from the mix of the input powers");
+      }
+      check(std::abs(power(output[0], latency + 2 * hop, latency + 6 * hop) -
+                     power(output[1], latency + 2 * hop, latency + 6 * hop)) <= 1.0e-6 * std::max(measured, 1.0e-12),
+            label + ": the two channels differ after the mix");
+    }
+  }
+}
+
 void runTest(const char* name, void (*test)())
 {
   const auto failuresBefore = failureCount;
@@ -876,6 +932,7 @@ int main()
   runTest("API misuse", testApiMisuse);
   runTest("randomised configurations", testRandomisedConfigurations);
   runTest("CrossMix keeps the signal level", testCrossMixKeepsLevel);
+  runTest("WarpMix keeps the mixed level", testWarpMix);
   runTest("subharmonic mask covers off-bin harmonics", testSubharmonicMaskCoversOffBinHarmonics);
 
   std::cout << (failureCount == 0 ? "All robustness tests passed" : "Robustness tests failed") << " ("

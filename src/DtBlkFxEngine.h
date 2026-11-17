@@ -22,6 +22,7 @@
 #include <fftw3.h>
 
 #include <array>
+#include <complex>
 #include <cstdint>
 #include <vector>
 
@@ -157,7 +158,8 @@ private:
   void applyConstShift(const EffectParameters& effect, size_t frameStart) noexcept;
   void applyHarmonicEffect(const EffectParameters& effect, size_t frameStart) noexcept;
   void applySweep(const EffectParameters& effect) noexcept;
-  void applyStereoEffect(const EffectParameters& effect, int channelCount) noexcept;
+  void applyStereoEffect(const EffectParameters& effect, int channelCount, size_t frameStart) noexcept;
+  void applyWarpMix(const EffectParameters& effect, size_t frameStart) noexcept;
   float findFundamentalBin(int firstBin,
                            int lastBin,
                            int minimumSubharmonicBin = 3) const noexcept;
@@ -184,6 +186,12 @@ private:
   std::vector<ComplexBin> bins;
   std::vector<ComplexBin> remapSource;
   std::vector<ComplexBin> remapAccumulator;
+  // WarpMix scratch: the two input runs (one extra bin each) and the mixed output run.
+  std::vector<std::complex<float>> warpInput0;
+  std::vector<std::complex<float>> warpInput1;
+  std::vector<std::complex<float>> warpOutput;
+  // Per-frame input power per channel; effects that change the level target adjust it (legacy total_in_pwr).
+  std::array<double, 2> frameInputPowers{};
   std::vector<unsigned char> selectionMask;
   std::vector<unsigned char> effectMask;
   std::vector<ParameterEvent> parameterEvents;
