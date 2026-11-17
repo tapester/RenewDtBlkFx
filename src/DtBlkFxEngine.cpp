@@ -531,11 +531,7 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
       continue;
 
     if (effect.type >= 26 && effect.type <= 30) {
-<<<<<<< HEAD
-      applyStereoEffect(effect, channelCount, inputPowers);
-=======
-      applyStereoEffect(effect, channelCount, nextFrameStart);
->>>>>>> a4897ae8757a1b938fea0348bf028fd03fab2fbe
+      applyStereoEffect(effect, channelCount, inputPowers, nextFrameStart);
       continue;
     }
 
@@ -1708,11 +1704,8 @@ void DtBlkFxEngine::applySweep(const EffectParameters& effect) noexcept
 
 void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
                                       int channelCount,
-<<<<<<< HEAD
-                                      std::array<double, 2>& targetPowers) noexcept
-=======
+                                      std::array<double, 2>& targetPowers,
                                       size_t frameStart) noexcept
->>>>>>> a4897ae8757a1b938fea0348bf028fd03fab2fbe
 {
   if (channelCount != 2 || effect.type < 26 || effect.type > 30)
     return;
@@ -2051,8 +2044,6 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
   left = destination;
   right = destination;
 }
-<<<<<<< HEAD
-=======
 void DtBlkFxEngine::applyWarpMix(const EffectParameters& effect, size_t frameStart) noexcept
 {
   // Port of the legacy WeirdMixProcess (effect "WarpMix"). The amplitude parameter is a distortion
@@ -2277,8 +2268,6 @@ void DtBlkFxEngine::applyWarpMix(const EffectParameters& effect, size_t frameSta
   for (auto& power : frameInputPowers)
     power += (mixedPower - power) * processedFraction;
 }
->>>>>>> a4897ae8757a1b938fea0348bf028fd03fab2fbe
-
 void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t frameStart) noexcept
 {
   if (effect.type != 11 && effect.type != 12 && effect.type != 13 && effect.type != 14)
