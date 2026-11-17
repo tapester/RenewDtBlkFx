@@ -503,23 +503,7 @@ behaviors, not claims of legacy output parity.
 
 ## Remaining porting activities
 
-1. **Smoke-test the current GUI in hosts:** load VST3 and CLAP in at least
-   one DAW each. Verify that each effect selector presents `None` once,
-   first; that selecting effects updates labels and readouts; and that
-   Match/Filter selection changes the Mix Back meaning. Check parameter
-   automation, project save/restore, editor reopening, and clean unload.
-   The parameter-bound controls, effect-aware readouts, and mode selector
-   are implemented, but no DAW/editor smoke test has been completed.
-
-2. **Compare and refine spectral effects:** obtain legacy reference renders,
-   then compare the JUCE port using identical inputs and parameters.
-   Verify the five-bin frequency-remapping kernel, fundamental tracking,
-   Shift's low-frequency peak alignment, mask boundaries, Sweep
-   interpolation, and stereo effect behavior (including WarpMix and the
-   CrossMix phase change). Parity remains unverified without reference
-   renders; use `tests/reference_compare` once legacy renders exist.
-
-3. **Validate scheduler and automation compatibility:** compare startup,
+1. **Validate scheduler and automation compatibility:** compare startup,
    latency, and delay transitions against legacy renders. The legacy VST
    can force partial FFT frames at host callback boundaries, while the
    JUCE engine waits for a full frame and remains host-block-size invariant.
@@ -529,12 +513,12 @@ behaviors, not claims of legacy output parity.
    automation is not sample-accurate; add event-offset handling only if a
    supported JUCE format path exposes those timestamps.
 
-4. **Port the live visualization:** safely publish input/output spectra to
+2. **Port the live visualization:** safely publish input/output spectra to
    the editor and implement the legacy live spectrogram. Keep audio-thread
    processing independent of editor lifetime and verify behavior when the
    editor is closed or reopened.
 
-5. **Complete release validation:** verify preset/state migration, transport
+3. **Complete release validation:** verify preset/state migration, transport
    changes, sample-rate and channel-layout changes, callback allocation and
    locking behavior, and latency/tail reporting. Expand DSP regressions,
    run pluginval, and repeat host smoke tests for both plugin formats.
