@@ -231,9 +231,6 @@ juce_add_plugin(DtBlkFx
 clap_juce_extensions_plugin(
     TARGET DtBlkFx
 
-    # IMPORTANT:
-    # Replace this with a permanent, globally unique reverse-domain ID
-    # controlled by the plugin publisher.
     CLAP_ID "com.tapester.dtblkfx"
     CLAP_FEATURES audio-effect filter frequency-shifter glitch
 )
