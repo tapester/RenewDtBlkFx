@@ -1,74 +1,70 @@
 name: Build DtBlkFx plugins
 
 on:
-  # Validate changes to the default branch, proposed PRs, and manually dispatched runs.
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
-  # The workflow only needs to read the checked-out source.
   contents: read
 
 jobs:
   build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+    name: ${ matrix.name }
+    runs-on: ${ matrix.os }
     strategy:
       fail-fast: false
-      # One native build per supported CI platform; no dynamic-FFTW variant,
-      # since shipping the plugin with fftw3f.dll is not desired.
+      # CI uses the same Ninja presets as local release/test builds on every platform.
       matrix:
         include:
-          - name: windows
+          - name: windows-x64
             os: windows-latest
+            preset: windows-x64-tests
+            build_dir: build/windows-x64-tests
             triplet: x64-windows-static-md
-            generator: "Visual Studio 17 2022"
-            cmake_extra: ""
-          - name: macos
+          - name: macos-arm64
             os: macos-latest
+            preset: macos-arm64-tests
+            build_dir: build/macos-arm64-tests
             triplet: arm64-osx
-            generator: "Ninja"
-            cmake_extra: "-DCMAKE_OSX_ARCHITECTURES=arm64"
           - name: macos-x64
             os: macos-latest
+            preset: macos-x64-tests
+            build_dir: build/macos-x64-tests
             triplet: x64-osx
-            generator: "Ninja"
-            cmake_extra: "-DCMAKE_OSX_ARCHITECTURES=x86_64"
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          # JUCE, vcpkg, and CLAP JUCE Extensions are required submodules.
           submodules: recursive
 
       - name: Setup MSVC (Windows only)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
-      - name: Bootstrap repo-local vcpkg
+      - name: Bootstrap repo-local vcpkg (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $root = Join-Path $env:GITHUB_WORKSPACE "modules\vcpkg"
           & (Join-Path $root "bootstrap-vcpkg.bat")
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path (Join-Path $root "vcpkg.exe"))) {
             throw "vcpkg bootstrap completed without creating vcpkg.exe at $root"
           }
           "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $root | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          Write-Host "Using bootstrapped repo-local vcpkg: $root"
 
-      - name: Install FFTW3 via repo-local vcpkg
+      - name: Install FFTW3 (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "$env:GITHUB_WORKSPACE\modules\vcpkg\vcpkg.exe" install fftw3:${{ matrix.triplet }}
+          & "$env:GITHUB_WORKSPACE\modules\vcpkg\vcpkg.exe" install fftw3:${ matrix.triplet }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Bootstrap vcpkg (macOS)
         if: runner.os != 'Windows'
@@ -83,83 +79,62 @@ jobs:
           echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
           echo "$root" >> "$GITHUB_PATH"
 
-      - name: Install FFTW3 via repo-local vcpkg (macOS)
+      - name: Install FFTW3 (macOS)
         if: runner.os != 'Windows'
         shell: bash
-        run: |
-          ./modules/vcpkg/vcpkg install fftw3:${{ matrix.triplet }}
+        run: ./modules/vcpkg/vcpkg install fftw3:${ matrix.triplet }
 
       - name: Configure CMake
-        shell: bash
-        run: |
-          cmake -S . -B build \
-            -G "${{ matrix.generator }}" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/modules/vcpkg/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
-            ${{ matrix.cmake_extra }}
+        run: cmake --preset "${ matrix.preset }"
 
       - name: Build plugin bundles
-        shell: bash
-        run: |
-          cmake --build build --config Release --parallel
+        run: cmake --build --preset "${ matrix.preset }" --parallel
+
+      - name: Run tests
+        run: ctest --preset "${ matrix.preset }"
 
       - name: Verify plugin has no FFTW runtime dependency (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # The plugin must be self-contained: hosts such as pluginval do not search the
-          # plugin folder for dependent DLLs, so a dynamic FFTW makes the plugin fail to load.
-          $bundle = "build/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
+          $bundle = "${ matrix.build_dir }/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
           $binary = Join-Path $bundle "Contents/x86_64-win/DtBlkFx.vst3"
-          if (-not (Test-Path $binary)) {
-            throw "Plugin binary not found: $binary"
-          }
+          if (-not (Test-Path $binary)) { throw "Plugin binary not found: $binary" }
           $dependents = dumpbin /dependents $binary | Out-String
           Write-Host $dependents
           if ($dependents -match "(?i)fftw") {
             throw "Plugin still imports an FFTW DLL. Use the x64-windows-static-md triplet."
           }
           $strayDll = Get-ChildItem -Path $bundle -Recurse -Filter "fftw*.dll" -ErrorAction SilentlyContinue
-          if ($strayDll) {
-            throw "Unexpected FFTW DLL inside the VST3 bundle: $($strayDll.FullName)"
-          }
-
-      - name: Run engine tests
-        shell: bash
-        run: |
-          # Fail CI on DSP or scheduler regressions before publishing plugin bundles.
-          ctest --test-dir build --build-config Release --output-on-failure
+          if ($strayDll) { throw "Unexpected FFTW DLL inside the VST3 bundle: $($strayDll.FullName)" }
 
       - name: Collect VST3 artifacts
         shell: bash
         run: |
           mkdir -p artifacts/vst3
-          find build -type d -iname "*.vst3" -exec cp -R {} artifacts/vst3/ \;
-          find artifacts/vst3 -maxdepth 2 -print
+          find "${ matrix.build_dir }" -type d -iname "*.vst3" -exec cp -R {} artifacts/vst3/ \;
+          find artifacts/vst3 -maxdepth 3 -print
 
       - name: Collect CLAP artifacts
         shell: bash
         run: |
           mkdir -p artifacts/clap
-          find build -iname "*.clap" -exec cp -R {} artifacts/clap/ \;
-          find artifacts/clap -maxdepth 2 -print
+          find "${ matrix.build_dir }" -iname "*.clap" -exec cp -R {} artifacts/clap/ \;
+          find artifacts/clap -maxdepth 3 -print
 
       - name: Upload VST3 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DtBlkFx-${{ matrix.name }}-VST3
+          name: RenewDtBlkFx-${ matrix.name }-VST3
           path: artifacts/vst3/**
           if-no-files-found: error
 
       - name: Upload CLAP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DtBlkFx-${{ matrix.name }}-CLAP
+          name: RenewDtBlkFx-${ matrix.name }-CLAP
           path: artifacts/clap/**
           if-no-files-found: error
-
-      # ---- VST3 validation (pluginval) ----
 
       - name: Download pluginval 1.0.4 (Windows)
         if: runner.os == 'Windows'
@@ -167,15 +142,10 @@ jobs:
         run: |
           $archive = Join-Path $env:RUNNER_TEMP "pluginval.zip"
           $destination = Join-Path $env:RUNNER_TEMP "pluginval"
-          Invoke-WebRequest `
-            -Uri "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip" `
-            -OutFile $archive
+          Invoke-WebRequest -Uri "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip" -OutFile $archive
           Expand-Archive -Path $archive -DestinationPath $destination -Force
-          $executable = Get-ChildItem -Path $destination -Filter "pluginval.exe" -Recurse |
-            Select-Object -First 1
-          if ($null -eq $executable) {
-            throw "pluginval.exe was not found in the v1.0.4 release archive"
-          }
+          $executable = Get-ChildItem -Path $destination -Filter "pluginval.exe" -Recurse | Select-Object -First 1
+          if ($null -eq $executable) { throw "pluginval.exe was not found in the v1.0.4 release archive" }
           $executable.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Download pluginval 1.0.4 (macOS)
@@ -199,15 +169,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          pluginval.exe --strictness-level 5 --skip-gui-tests "build/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
+          pluginval.exe --strictness-level 5 --skip-gui-tests "${ matrix.build_dir }/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
 
       - name: Validate VST3 (macOS)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          pluginval --strictness-level 5 --skip-gui-tests "build/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
-
-      # ---- CLAP validation (clap-validator) ----
+          pluginval --strictness-level 5 --skip-gui-tests "${ matrix.build_dir }/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -219,7 +187,6 @@ jobs:
         with:
           repository: free-audio/clap-validator
           path: tools/clap-validator
-          # Consider pinning a release tag instead of the default branch for reproducibility.
 
       - name: Build clap-validator
         shell: bash
@@ -230,11 +197,9 @@ jobs:
       - name: Validate CLAP with clap-validator
         shell: bash
         run: |
-          # Validate the collected CLAP artifact; pass the bundle/dir path directly.
           clap="$(find artifacts/clap -iname '*.clap' -print -quit)"
           if [[ -z "$clap" ]]; then
-            echo "No CLAP artifact found to validate" >&2
+            echo "No CLAP artifact found" >&2
             exit 1
           fi
-          # --only-failed keeps the log focused; drop it to see every test.
           tools/clap-validator/target/release/clap-validator validate --only-failed "$clap"
