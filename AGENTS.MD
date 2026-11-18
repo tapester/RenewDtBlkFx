@@ -10,7 +10,8 @@ JUCE plug-in (VST3, CLAP) that keeps the legacy plug-in's **functionality**.
 
 - `main`: the JUCE port. All work happens here.
 - `legacy`: the original VST2 code. **Read-only reference.** Never commit to it, never patch it,
-  never copy its code into `main` without being asked. Use it only to compare behavior.
+  never paste its code into `main` wholesale (port deliberately into the JUCE structure). Use it to
+  compare behavior.
 
 ## Layout
 
@@ -19,7 +20,7 @@ JUCE plug-in (VST3, CLAP) that keeps the legacy plug-in's **functionality**.
 | `src/DtBlkFxEngine.*` | DSP engine (FFTW3f). No JUCE dependency. |
 | `src/DtBlkFxLegacyMapping.h`, `src/DtBlkFxHostTiming.h` | Header-only helpers, JUCE-free so engine tests can use them |
 | `src/DtBlkFxProcessor.*`, `src/DtBlkFxEditor.*` | JUCE processor (APVTS, scheduler) and editor |
-| `src/DtBlkFxSweepTables.*` | Generated-style data tables; do not hand-edit |
+| `src/DtBlkFxSweepTables.*` | Precomputed sweep envelope data; do not edit without asking |
 | `tests/*.cpp` | CTest executables; diagnostics (`FftSwitchDiagnostic`, `EffectComparison`, `EffectProbe`) are standalone and not run by CTest |
 | `tests/reference_compare/` | Legacy-vs-engine comparison harness (Python tooling + renderers) |
 | `modules/` | Submodules: JUCE, vcpkg, clap-juce-extensions |
@@ -42,14 +43,17 @@ Build with CMake presets (see `readme.md` for prerequisites): `windows-x64`, `ma
 - **Do not run** the Python tooling under `tests/reference_compare/tools/` (including
   `selftest.py`) unless explicitly asked.
 - If no test build exists, say so and ask rather than building.
+- `ctest` only counts after a build of the current sources. If you changed code and were not
+  approved to build, report that tests were **not run**; never report results from stale binaries.
 
 CI (`.github/workflows/build-plugins.yml`) builds on Windows and macOS arm64, runs ctest, then
-validates the VST3 with pluginval 1.0.4 at strictness level 5 (`--skip-gui-tests`). Changes should
-not be expected to pass if they would break any of these steps.
+validates the VST3 with pluginval 1.0.4 at strictness level 5 (`--skip-gui-tests`). Don't make
+changes that would break these steps.
 
 ## Hard constraints (do not change without asking)
 
-1. **Legacy 44-parameter layout.** The order and IDs of the 44 legacy parameters, the effect-type
+1. **Legacy 44-parameter layout.** The order and IDs of the 44 legacy parameters (including the
+   per-slot ID scheme built by `fxParameterID`, e.g. `freq_a`, `type`), the effect-type
    encoding (`DtBlkFxLegacy::effectTypeToLegacyValue` / `legacyValueToEffectType`), and the order of
    the FFT plan table (`fftSizeCount`, indexed by the legacy format) must stay stable. Host
    automation and saved state depend on them. Existing state/parameter tests must keep passing.
@@ -106,4 +110,3 @@ when the file is touched.
 
 - Work on `main` (or a feature branch from it), never on `legacy`.
 - Small, focused commits with imperative subject lines.
-- Do not commit build output (`build/`, `work/`) or generated renderings.
