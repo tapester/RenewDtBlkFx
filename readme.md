@@ -1,335 +1,9 @@
-
 # DtBlkFx Audio FX Plug-in
 
-DtBlkFx is an FFT-based audio effects plug-in.
+DtBlkFx is an FFT-based audio effects plug-in (VST3 and CLAP).
 
-Forked from https://codeberg.org/skullzy/DtBlkFx
-
-## Build
-
-The project uses CMake, Ninja, JUCE, clap-juce-extensions and vcpkg.
-
-Supported build configurations:
-
-| Platform | Architecture | Preset |
-|---|---|---|
-| Windows | x64 | `windows-x64` |
-| Windows | x64, dynamic FFTW | `windows-x64-dynamic-fftw` |
-| macOS | Apple Silicon (arm64) | `macos-arm64` |
-| macOS | Intel (x86_64) | `macos-x64` |
-
-The normal release presets build the plug-in without the automated test
-executables. Dedicated `*-tests` presets build the plug-in and the test
-executables.
-
-### Prerequisites
-
-#### All platforms
-
-- Git, including submodule support
-- CMake 3.22 or newer
-- Ninja
-- A supported C++17 compiler
-
-#### Windows
-
-- Visual Studio 2022 with the Desktop development with C++ workload
-- Windows SDK
-
-Run the commands below from a Developer PowerShell for VS 2022.
-
-#### macOS
-
-- Xcode Command Line Tools
-- CMake
-- Ninja
-- Git
-
-Install the command-line tools:
-
-```bash
-xcode-select --install
-```
-
-Install the remaining tools with Homebrew:
-
-```bash
-brew install cmake ninja git
-```
-
-### Clone and initialize dependencies
-
-Clone the repository including its submodules:
-
-```bash
-git clone --recurse-submodules \
-    https://github.com/tapester/RenewDtBlkFx.git
-
-cd RenewDtBlkFx
-```
-
-If you already cloned the repository without submodules, initialize them:
-
-```bash
-git submodule update --init --recursive
-```
-
-Bootstrap the included vcpkg checkout:
-
-On Windows:
-
-```powershell
-.\modules\vcpkg\bootstrap-vcpkg.bat
-```
-
-On macOS:
-
-```bash
-./modules/vcpkg/bootstrap-vcpkg.sh
-```
-
-The project uses vcpkg manifest mode. The root `vcpkg.json` declares
-FFTW3 and pins the vcpkg baseline. CMake installs the required dependency
-during configuration through the vcpkg toolchain.
-
-You normally do not need to run `vcpkg install` manually.
-
-### Windows x64: release build
-
-Run from a Developer PowerShell for VS 2022:
-
-```powershell
-cmake --preset windows-x64
-cmake --build --preset windows-x64 --parallel
-```
-
-This is the default Windows build. FFTW is statically linked into the
-plug-in, so `fftw3f.dll` does not need to be installed beside it.
-
-The plug-in still requires the Microsoft Visual C++ 2015-2022
-Redistributable for the matching architecture.
-
-### Windows x64: dynamic FFTW build
-
-A variant that links FFTW dynamically is available:
-
-```powershell
-cmake --preset windows-x64-dynamic-fftw
-cmake --build --preset windows-x64-dynamic-fftw --parallel
-```
-
-Its plug-in is output under:
-
-```text
-build/windows-x64-dynamic-fftw
-```
-
-`fftw3f.dll` is staged beside each plug-in binary. When installing this
-variant manually, copy the complete `DtBlkFx.vst3` bundle, including
-`Contents/x86_64-win/fftw3f.dll`, into the VST3 folder.
-
-Some hosts, including pluginval, do not search the plug-in folder for
-dependent DLLs and may fail to load this variant. Prefer the default
-static build.
-
-### macOS Apple Silicon: release build
-
-For M1, M2, M3 and later Apple Silicon Macs:
-
-```bash
-cmake --preset macos-arm64
-cmake --build --preset macos-arm64 --parallel
-```
-
-The output is generated under:
-
-```text
-build/macos-arm64
-```
-
-### macOS Intel: release build
-
-For Intel Macs:
-
-```bash
-cmake --preset macos-x64
-cmake --build --preset macos-x64 --parallel
-```
-
-The output is generated under:
-
-```text
-build/macos-x64
-```
-
-### Build with automated tests
-
-Use the dedicated test presets to compile the plug-in and all registered
-CTest executables.
-
-Windows:
-
-```powershell
-cmake --preset windows-x64-tests
-cmake --build --preset windows-x64-tests --parallel
-ctest --preset windows-x64-tests
-```
-
-macOS Apple Silicon:
-
-```bash
-cmake --preset macos-arm64-tests
-cmake --build --preset macos-arm64-tests --parallel
-ctest --preset macos-arm64-tests
-```
-
-macOS Intel:
-
-```bash
-cmake --preset macos-x64-tests
-cmake --build --preset macos-x64-tests --parallel
-ctest --preset macos-x64-tests
-```
-
-CTest prints details for failing tests. The test presets run up to four
-tests concurrently.
-
-To run the tests manually without a test preset, use:
-
-```bash
-ctest --test-dir build/macos-arm64-tests \
-    -C Release \
-    --output-on-failure
-```
-
-### Build DSP diagnostic applications
-
-The DSP diagnostic applications are separate from the automated tests.
-They are not built by default.
-
-To build them, enable `DTBLKFX_BUILD_DIAGNOSTICS`:
-
-```bash
-cmake --preset macos-arm64-tests \
-    -DDTBLKFX_BUILD_DIAGNOSTICS=ON
-
-cmake --build --preset macos-arm64-tests --parallel
-```
-
-This builds:
-
-- `DtBlkFxFftSwitchDiagnostic`
-- `DtBlkFxEffectComparison`
-- `DtBlkFxEffectProbe`
-
-These are standalone diagnostic tools and are not executed by CTest.
-
-### Locate the plug-in artifacts
-
-The plug-in artifacts are generated below the selected build directory.
-
-To locate VST3 and CLAP outputs on macOS:
-
-```bash
-find build/macos-arm64 \
-    \( -name "*.vst3" -o -name "*.clap" \)
-```
-
-For Intel macOS, replace `build/macos-arm64` with `build/macos-x64`.
-
-On Windows:
-
-```powershell
-Get-ChildItem -Path build\windows-x64 -Recurse `
-    -Include *.vst3,*.clap
-```
-
-### Install plug-ins manually on macOS
-
-The standard user-level plug-in directories are:
-
-| Format | Installation directory |
-|---|---|
-| VST3 | `~/Library/Audio/Plug-Ins/VST3` |
-| CLAP | `~/Library/Audio/Plug-Ins/CLAP` |
-| AU, if enabled in a future build | `~/Library/Audio/Plug-Ins/Components` |
-
-Create the directories if necessary:
-
-```bash
-mkdir -p "$HOME/Library/Audio/Plug-Ins/VST3"
-mkdir -p "$HOME/Library/Audio/Plug-Ins/CLAP"
-```
-
-Copy the complete plug-in bundle or file found in the build directory.
-For example, for a VST3 bundle:
-
-```bash
-ditto \
-    "path/to/DtBlkFx.vst3" \
-    "$HOME/Library/Audio/Plug-Ins/VST3/DtBlkFx.vst3"
-```
-
-For CLAP, use the actual `.clap` artifact path returned by `find`:
-
-```bash
-ditto \
-    "path/to/DtBlkFx.clap" \
-    "$HOME/Library/Audio/Plug-Ins/CLAP/DtBlkFx.clap"
-```
-
-Do not copy only the executable from inside a plug-in bundle. Preserve
-the complete bundle structure.
-
-Restart the DAW or rescan its plug-in directories after installation.
-
-### Verify macOS architecture and dependencies
-
-For a VST3 bundle, inspect the executable inside the bundle:
-
-```bash
-file \
-    "$HOME/Library/Audio/Plug-Ins/VST3/DtBlkFx.vst3/Contents/MacOS/DtBlkFx"
-```
-
-Expected architecture:
-
-- Apple Silicon: `arm64`
-- Intel: `x86_64`
-
-Inspect linked dynamic libraries with:
-
-```bash
-otool -L \
-    "$HOME/Library/Audio/Plug-Ins/VST3/DtBlkFx.vst3/Contents/MacOS/DtBlkFx"
-```
-
-The same checks can be performed on the CLAP executable.
-
-### Validate with pluginval
-
-If pluginval is available in `tools/pluginval`, run it against the
-generated VST3 bundle.
-
-Windows:
-
-```powershell
-.\tools\pluginval\pluginval.exe `
-    --validate ".\build\windows-x64\DtBlkFx_artefacts\Release\VST3\DtBlkFx.vst3" `
-    --strictness-level 5
-```
-
-Adjust the path if the actual JUCE output location differs.
-
-Pluginval validation should be complemented by manual DAW testing.
-A successful pluginval run does not prove that every effect or host
-interaction behaves correctly.
-
-## Legacy Code
-
-The legacy implementation is available in the legacy branch:
-
-https://github.com/tapester/RenewDtBlkFx/tree/legacy
+Forked from https://codeberg.org/skullzy/DtBlkFx. The original VST2 code is in the
+[`legacy` branch](https://github.com/tapester/RenewDtBlkFx/tree/legacy).
 
 ## Usage examples
 
@@ -363,162 +37,190 @@ https://github.com/tapester/RenewDtBlkFx/tree/legacy
 You can select up to eight effects to run in series. Combining effects
 allows you to create new and surprising sounds.
 
-## JUCE migration status
+## Build
 
-The current JUCE editor exposes the global controls and eight effect slots
-with attached sliders, toggles, and populated effect selectors; controls
-are host-automatable and save their values with the plugin state. Value
-readouts show frequency, gain/mix, delay, block-size, and effect-specific
-units; labels and unused controls follow the selected effect. The effect
-selectors show one `None` entry at the beginning without changing the
-legacy host parameter order. The Power control selects Match or Filter
-mode, which changes how Mix Back is interpreted.
+The project uses CMake, Ninja, JUCE, clap-juce-extensions and vcpkg.
 
-The processor now runs FFT frames through an overlap scheduler with legacy
-hop calculation, linear block crossfades, host-beat block sync, and
-delay-unit conversion (using 120 BPM when host tempo is unavailable).
-For short delays it reduces the FFT plan as the legacy engine does, then
-keeps that FFT size while centering a shorter active time window in it.
+| Platform | Architecture | Preset |
+|---|---|---|
+| Windows | x64 (static FFTW) | `windows-x64` |
+| Windows | x64, dynamic FFTW | `windows-x64-dynamic-fftw` |
+| macOS | Apple Silicon (arm64) | `macos-arm64` |
+| macOS | Intel (x86_64) | `macos-x64` |
 
-The scheduler interpolates the 44 legacy parameter values by absolute
-sample position and uses the legacy quarter-beat transition distance when
-parameter changes are observed. JUCE's APVTS exposes parameter snapshots
-at process-block boundaries, so automation points inside a host block
-cannot be timestamped by this processor.
+The release presets build the plug-in only. The `*-tests` presets
+(`windows-x64-tests`, `macos-arm64-tests`, `macos-x64-tests`) also build the
+test executables.
 
-Filter, Contrast, Smear, Threshold, Clip, Resize, Resample, Shift,
-ConstShift, HarmShift, HarmRepitch, HarmFilt, AutoHarm, Sweep1–5,
-HarmMask, AutoHarmMask, AutoSubharm1–3Mask, ThreshMask, Vocode,
-HarmMatch L>R/R>L, CrossMix, and WarpMix are implemented. The legacy
-`None` choices remain bypasses.
+### Prerequisites
 
-Mask effects now select harmonic or threshold ranges for the next effect
-slot. Stereo effects operate on both channel spectra and deliver a shared
-processed spectrum.
+- Git with submodule support, CMake 3.22 or newer, Ninja, a C++17 compiler
+- Windows: Visual Studio 2022 with the Desktop development with C++
+  workload and the Windows SDK. Run the commands from a Developer
+  PowerShell for VS 2022.
+- macOS: Xcode Command Line Tools (`xcode-select --install`), then
+  `brew install cmake ninja git`
 
-The frequency remappers use a normalized five-bin Lagrange interpolation
-kernel for fractional FFT-bin shifts; this is not yet verified against
-the legacy kernel. Fundamental tracking and stereo effect algorithms
-still need comparison against legacy reference renders. The live
-spectrogram has not yet been ported.
+### Get the sources and bootstrap vcpkg
 
-Porting status of the stereo effects: Vocode, HarmMatch L>R/R>L, CrossMix,
-and WarpMix are ported from the legacy algorithms. CrossMix derives the
-phase from the weighted sum of the two bins instead of the legacy
-averaged angles, because averaging wrapped angles biases the phase towards
-0 and creates an impulse at the frame start that cost about 0.54 dB at
-mid mix; this is a deliberate sound deviation. WarpMix follows the legacy
-`WeirdMixProcess` (mode 0 curve morphing, mode 1 power-segment stretching
-with bin-shift phase correction); the amplitude control is a distortion
-amount (linear below 0 dB) and the legacy power-target adjustment is
-applied. DC is not mixed (as in CrossMix). Two details are not verified
-against legacy renders: the bin-shift phase correction uses an exact
-sine/cosine instead of the legacy 4096-entry table, and WarpMix level
-relies on Match mode (Power control) as in the legacy engine.
+```bash
+git clone --recurse-submodules https://github.com/tapester/RenewDtBlkFx.git
+cd RenewDtBlkFx
+# If you cloned without submodules:
+git submodule update --init --recursive
+```
 
-A standalone single-precision FFT workspace provides all legacy FFT sizes
-and a 44-value parameter snapshot.
+Bootstrap the included vcpkg checkout (once):
 
-## Suggested tests
+```bash
+./modules/vcpkg/bootstrap-vcpkg.sh        # macOS
+.\modules\vcpkg\bootstrap-vcpkg.bat       # Windows (PowerShell)
+```
 
-The engine test target checks FFT round trips and sine-bin placement for
-every legacy FFT size, plus scheduler hop/delay behavior, chunking
-invariance, reset/startup behavior, beat-synchronized hops, short-window
-FFT sizing and sample-positioned parameter interpolation, Filter behavior,
-Contrast spectral shaping and power preservation, deterministic Smear,
-Threshold selection, Clip limiting, frequency movement for Resize,
-Resample, Shift, and ConstShift, harmonic filtering/tracking/shifting/
-repitching, all five Sweep profiles, harmonic and threshold mask chaining,
-and stereo effects.
+vcpkg runs in manifest mode: `vcpkg.json` declares FFTW3 and pins the
+baseline, and CMake installs it during configuration. Do not run
+`vcpkg install` manually.
 
-Extend these regressions with edge-frequency, zero/full-amplitude, and
-legacy reference-render comparisons.
+### Build and test
 
-Additional test areas:
+Replace `<preset>` with a preset from the table:
 
-- **Parameter mapping:** verify the 44-value snapshot order and normalized
-  ranges; check Mix Back/Power Match and Overlap/Block Sync combinations.
-- **FFT correctness:** add silence and seeded-noise cases to the existing
-  impulse and sine checks at every supported block size.
-- **Bypass transparency:** process mono and stereo signals with all effect
-  slots disabled; check gain, channel separation, finite output, and latency.
-- **Effect behavior:** test each migrated effect with edge frequencies and
-  zero/full amplitude, and compare JUCE renders with legacy references.
-- **State round trip:** save and restore plugin state, then compare every
-  parameter and the resulting processed audio.
-- **Real-time safety:** exercise parameter automation during processing and
-  verify the audio callback does not allocate, lock the UI, or access editor
-  components.
-- **Host smoke tests:** load both plugin formats, automate parameters,
-  change sample rate/block size, and confirm state recall and clean unload.
+```bash
+cmake --preset <preset>
+cmake --build --preset <preset> --parallel
+```
 
-Run the registered automated tests with the platform-specific test preset
-described above. CTest runs all registered tests, not just the engine tests.
+Output goes to `build/<preset>`. To build and run the tests, use the
+matching test preset:
 
-The FFT workspace is isolated from JUCE and uses FFTW's single-precision
-API. The scheduler preallocates its mono/stereo input and output buffers
-and reserves workspace for every supported FFT size.
+```bash
+cmake --preset macos-arm64-tests
+cmake --build --preset macos-arm64-tests --parallel
+ctest --preset macos-arm64-tests
+```
 
-The runtime keeps the selected FFT plan independent of output delay, uses
-the full FFT window (the legacy block-shoulder parameter is fixed at zero),
-applies plan changes at a frame boundary, and reports its frame-collection
-latency; output delay is applied in addition to it.
+CTest runs all registered tests, not just the engine tests.
 
-Hop length uses the raw legacy overlap encoding, and beat-sync intervals
-and the minimum hop follow the legacy tick threshold. Parameter
-interpolation uses the sample positions of host callback snapshots because
-JUCE's APVTS does not expose in-block automation event timestamps here.
-Parameter-event-to-block alignment is available through the opt-in
-Parameter Sync control and is off by default for legacy-compatible behavior.
+The DSP diagnostic applications (`DtBlkFxFftSwitchDiagnostic`,
+`DtBlkFxEffectComparison`, `DtBlkFxEffectProbe`) are standalone tools, not
+run by CTest. Build them with `-DDTBLKFX_BUILD_DIAGNOSTICS=ON` on a test
+preset.
 
-Twenty-nine effect types are implemented with focused engine tests; the
-two legacy `None` choices remain bypasses. Sweep uses the five legacy
-120-by-128 harmonic-power tables and interpolates them in scale or copy
-mode. Harmonic and threshold mask effects constrain the next slot's
-processing, and the five stereo effects (Vocode, HarmMatch L>R/R>L,
-CrossMix, and WarpMix) now run jointly across both channel spectra.
+### Windows: static and dynamic FFTW
 
-These new effects are tested for deterministic behavior, mask selection,
-and stereo mixing, but their legacy parity is unverified without reference
-renders. Mask boundary details and stereo automation still need
-reference-based refinement. The harness in `tests/reference_compare`
-renders both implementations from the same 44 parameters for this purpose.
+`windows-x64` links FFTW statically, so the plug-in needs no `fftw3f.dll`.
+It still needs the Microsoft Visual C++ 2015-2022 Redistributable.
 
-At startup, the first output frame is placed at the sum of frame-collection
-latency and configured delay; the 16-sample startup fade makes its first
-nonzero sample one sample later. The host-reported plugin latency is the
-frame-collection latency only and does not include the configurable
-output delay.
+`windows-x64-dynamic-fftw` stages `fftw3f.dll` beside each plug-in binary.
+Install the complete `DtBlkFx.vst3` bundle, including
+`Contents/x86_64-win/fftw3f.dll`. Some hosts, including pluginval, do not
+search the plug-in folder for DLLs and fail to load this variant, so prefer
+the static build.
 
-Delay target changes start at a frame boundary and crossfade between the
-old and new delay-line read positions over at most one FFT frame. If the
-new read position does not yet contain generated output history, the old
-position remains active until it does; the ring's absolute-position tags
-prevent wrapped stale samples from being read.
+### Install and validate
 
-The delay ring and tags are preallocated, and the per-sample transition
-has bounded work. Deterministic tests verify startup alignment, transition
-continuity, and block-size invariance. These are verified JUCE-engine
-behaviors, not claims of legacy output parity.
+Find the built plug-ins:
+
+```bash
+find build/macos-arm64 \( -name "*.vst3" -o -name "*.clap" \)   # macOS
+```
+
+```powershell
+Get-ChildItem -Path build\windows-x64 -Recurse -Include *.vst3,*.clap   # Windows
+```
+
+Copy the complete bundle, not just the executable inside it. On macOS the
+user-level directories are `~/Library/Audio/Plug-Ins/VST3` and
+`~/Library/Audio/Plug-Ins/CLAP`:
+
+```bash
+ditto "path/to/DtBlkFx.vst3" "$HOME/Library/Audio/Plug-Ins/VST3/DtBlkFx.vst3"
+```
+
+Restart the DAW or rescan its plug-in folders. To check the architecture of
+a macOS build, run `file` on the executable in `Contents/MacOS`.
+
+Validate with [pluginval](https://github.com/Tracktion/pluginval) (CI uses
+1.0.4):
+
+```bash
+pluginval --strictness-level 5 --skip-gui-tests path/to/DtBlkFx.vst3
+```
+
+A successful pluginval run does not prove that every effect or host
+interaction works; also test manually in a DAW.
+
+## Behavior notes
+
+- **Parameters:** The 44 legacy parameter values drive the engine. They are
+  interpolated by sample position, using the legacy quarter-beat transition
+  distance. The host delivers parameter values per block, so automation
+  inside a block is not sample-accurate. The opt-in Parameter Sync control
+  aligns parameter events to blocks; it is off by default for
+  legacy-compatible behavior.
+- **Latency:** The Latency parameter sets the fixed delay the host
+  compensates for, and Block Size is limited to what fits into it. The
+  configurable output Delay is added on top and is not reported to the host.
+- **Block-size independent:** The engine waits for a full FFT frame, so its
+  output does not depend on the host's block size. The legacy VST2 plug-in
+  could force partial frames at callback boundaries.
+- **Effects:** All 29 effect types are implemented; the two legacy `None`
+  choices stay bypasses. Mask effects constrain the next slot. Stereo
+  effects (Vocode, HarmMatch L>R/R>L, CrossMix, WarpMix) work jointly on
+  both channels.
+
+### Known deviations from legacy
+
+Functional parity is the goal; these differences are known and intended or
+not yet verified:
+
+- Frequency remappers (Resize, Resample, Shift, ConstShift, harmonic
+  shifts) use a normalized five-bin Lagrange kernel for fractional bin
+  shifts. Not yet verified against the legacy kernel.
+- CrossMix derives the phase from the weighted sum of the two bins instead
+  of the legacy averaged angles. Averaging wrapped angles biases the phase
+  towards 0 and creates an impulse at the frame start (about 0.54 dB at mid
+  mix). This is a deliberate sound deviation.
+- WarpMix follows the legacy `WeirdMixProcess`, but its bin-shift phase
+  correction uses exact sine/cosine instead of the legacy 4096-entry table,
+  and its level relies on Match mode (Power control) as in legacy.
+- Fundamental tracking and the stereo effects still need comparison against
+  legacy reference renders. `tests/reference_compare` renders both
+  implementations from the same 44 parameters for this purpose.
+- The live spectrogram has not been ported.
+
+### CPU load with large block sizes
+
+The engine computes a whole FFT frame in one burst when the frame is
+complete, so CPU load arrives in spikes, not evenly. A spike grows with the
+Block Size and the effects used. Indicative longest times for one audio
+call with 8 effects, stereo, 48 kHz, measured on a 2-core cloud VM with a
+512-sample host buffer (10.7 ms available; your hardware will differ):
+
+| Block Size | Longest call |
+|---|---|
+| 4096 | 3.5 ms (99% of calls under 1 ms) |
+| 16384 | 4 ms |
+| 80640 | 18 ms, over the 10.7 ms available |
+
+With a 64-sample buffer (1.3 ms available), 80640 took up to 24 ms. At 80640 an empty slot costs about 3.4 ms. Resample and ConstShift add about
+11 ms each, Shift about 6 ms and WarpMix about 4 ms; the other effects add
+0-3 ms. If you hear dropouts, use a smaller Block Size, fewer heavy effects,
+or a larger host buffer.
 
 ## Remaining porting activities
 
 1. **Validate scheduler and automation compatibility:** compare startup,
-   latency, and delay transitions against legacy renders. The legacy VST
-   can force partial FFT frames at host callback boundaries, while the
-   JUCE engine waits for a full frame and remains host-block-size invariant.
-   Consider a callback-boundary compatibility mode only if reference
-   behavior requires it. VST3/CLAP currently receive APVTS snapshots at
-   callback boundaries, not timestamped parameter events, so in-block
-   automation is not sample-accurate; add event-offset handling only if a
-   supported JUCE format path exposes those timestamps.
-
-2. **Port the live visualization:** safely publish input/output spectra to
-   the editor and implement the legacy live spectrogram. Keep audio-thread
-   processing independent of editor lifetime and verify behavior when the
-   editor is closed or reopened.
-
-3. **Complete release validation:** verify preset/state migration, transport
-   changes, sample-rate and channel-layout changes, callback allocation and
-   locking behavior, and latency/tail reporting. Expand DSP regressions,
-   run pluginval, and repeat host smoke tests for both plugin formats.
+   latency and delay transitions against legacy renders. Add a
+   callback-boundary compatibility mode only if reference behavior requires
+   it, and sample-accurate automation only if a supported JUCE format path
+   exposes event timestamps.
+2. **Reduce frame-time spikes:** see "CPU load with large block sizes".
+   Options are a worker thread or time slicing within spare latency.
+3. **Port the live visualization:** publish input/output spectra to the
+   editor safely, independent of the editor's lifetime.
+4. **Complete release validation:** verify preset/state migration, transport
+   and sample-rate changes, channel layouts, and latency/tail reporting;
+   expand DSP regressions with edge frequencies, zero/full amplitude and
+   legacy reference renders; run pluginval and host smoke tests for both
+   plug-in formats.
