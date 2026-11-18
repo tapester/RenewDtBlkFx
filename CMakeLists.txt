@@ -175,19 +175,19 @@ if(DTBLKFX_BUILD_DIAGNOSTICS)
 
     # Diagnostic: measures delay of the new engine and legacy VST2 plugin.
     add_executable(DtBlkFxFftSwitchDiagnostic
-        tests/DtBlkFxFftSwitchDiagnostic.cpp
+        tests/diagnostics/DtBlkFxFftSwitchDiagnostic.cpp
     )
     target_link_libraries(DtBlkFxFftSwitchDiagnostic PRIVATE DtBlkFxEngine)
 
     # Comparison: renders identical audio through legacy and new engines.
     add_executable(DtBlkFxEffectComparison
-        tests/DtBlkFxEffectComparison.cpp
+        tests/diagnostics/DtBlkFxEffectComparison.cpp
     )
     target_link_libraries(DtBlkFxEffectComparison PRIVATE DtBlkFxEngine)
 
     # Probe: compares one effect and optionally writes WAV files.
     add_executable(DtBlkFxEffectProbe
-        tests/DtBlkFxEffectProbe.cpp
+        tests/diagnostics/DtBlkFxEffectProbe.cpp
     )
     target_link_libraries(DtBlkFxEffectProbe PRIVATE DtBlkFxEngine)
 
@@ -200,12 +200,14 @@ endif()
 juce_add_plugin(DtBlkFx
 
     # Plugin identity
-    COMPANY_NAME "DtBlkFx"
-    PRODUCT_NAME "DtBlkFx"
+    COMPANY_NAME "Tapester"
+    COMPANY_WEBSITE "https://github.com/tapester/RenewDtBlkFx"
+    PRODUCT_NAME "RenewDtBlkFx"
+    DESCRIPTION "Frequency-domain audio effects processor"
 
     # Keep these codes stable once the plugin is released.
-    PLUGIN_MANUFACTURER_CODE DtBl
-    PLUGIN_CODE DtBl
+    PLUGIN_MANUFACTURER_CODE Tpst
+    PLUGIN_CODE RnDt
 
     # Native JUCE plugin formats.
     # CLAP is added separately below.
@@ -218,10 +220,13 @@ juce_add_plugin(DtBlkFx
     IS_MIDI_EFFECT FALSE
 
     # VST3 category
-    VST3_CATEGORIES Fx
+    VST3_CATEGORIES Fx Filter Pitch Shift
 
     # Avoid modifying a developer's plugin installation.
     COPY_PLUGIN_AFTER_BUILD FALSE
+
+    # Add version information to the plugin binary.
+    VERSION ${PROJECT_VERSION}
 )
 
 # ==============================================================================
@@ -231,7 +236,7 @@ juce_add_plugin(DtBlkFx
 clap_juce_extensions_plugin(
     TARGET DtBlkFx
 
-    CLAP_ID "com.tapester.dtblkfx"
+    CLAP_ID "com.tapester.renewdtblkfx"
     CLAP_FEATURES audio-effect filter frequency-shifter glitch
 )
 
