@@ -37,7 +37,7 @@ int getLegacyFftPlanIndex(float parameter)
 {
   return juce::jlimit(0,
                       DtBlkFxEngine::fftSizeCount - 1,
-                      static_cast<int>(parameter * 255.0f / 4.0f - 1.5f));
+                      DtBlkFxLegacy::legacyValueToFftPlanIndex(parameter));
 }
 
 bool isOn(const std::atomic<float>* handle) noexcept
@@ -287,7 +287,7 @@ DtBlkFxAudioProcessor::LegacyParameterBlock DtBlkFxAudioProcessor::getLegacyPara
   // The engine consumes the original compact 44-float parameter representation.
   LegacyParameterBlock legacy{};
   const auto mixBack = juce::jlimit(0.0f, 1.0f, readFloat(handles.mixBack));
-  legacy[0] = readBool(handles.powerMatch) ? mixBack * 0.5f : 1.0f - mixBack * 0.499f;
+  legacy[0] = DtBlkFxLegacy::mixBackToLegacyValue(mixBack, readBool(handles.powerMatch));
   legacy[1] = readFloat(handles.delay);
   legacy[2] = readFloat(handles.fftLength);
 

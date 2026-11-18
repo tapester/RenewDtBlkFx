@@ -684,7 +684,7 @@ void DtBlkFxEngine::updateFrameParameters(size_t frameStart) noexcept
 
   LegacyParameters current{};
   getInterpolatedParameters(frameStart, current);
-  const auto plan = std::clamp(static_cast<int>(current[2] * 255.0f / 4.0f - 1.5f),
+  const auto plan = std::clamp(DtBlkFxLegacy::legacyValueToFftPlanIndex(current[2]),
                                0,
                                fftSizeCount - 1);
   requestedFftSize = fftSizeAt(plan);
@@ -692,9 +692,8 @@ void DtBlkFxEngine::updateFrameParameters(size_t frameStart) noexcept
   delaySamples = getDelaySamples(current[1]);
 
   const auto mixBackParameter = current[0];
-  powerMatch = mixBackParameter <= 0.5f;
-  mixBack = powerMatch ? mixBackParameter * 2.0f
-                       : (1.0f - mixBackParameter) * (1.0f / 0.499f);
+  powerMatch = DtBlkFxLegacy::legacyValueIsPowerMatch(mixBackParameter);
+  mixBack = DtBlkFxLegacy::legacyValueToMixBack(mixBackParameter);
 
   for (int slot = 0; slot < static_cast<int>(effects.size()); ++slot) {
     const auto offset = static_cast<size_t>(4 + slot * 5);
