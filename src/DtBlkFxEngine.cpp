@@ -27,7 +27,18 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <new>
+
+namespace {
+// FFTW's planner is not thread-safe (only fftwf_execute is), and hosts may prepare several
+// instances on different threads at once. All plan creation and destruction takes this lock.
+std::mutex& fftwPlannerMutex()
+{
+  static std::mutex mutex;
+  return mutex;
+}
+} // namespace
 
 DtBlkFxEngine::~DtBlkFxEngine()
 {
@@ -50,18 +61,24 @@ bool DtBlkFxEngine::prepare(int fftSizeIndex, double sampleRate)
   }
 
   // Build every supported plan up front because legacy automation can change FFT size.
-  for (int i = 0; i < fftSizeCount; ++i) {
-    const auto size = fftSizes[static_cast<size_t>(i)];
-    auto* fftwFrequencyBuffer = reinterpret_cast<fftwf_complex*>(frequencyBuffer);
-    plans[static_cast<size_t>(i)].forward =
-        fftwf_plan_dft_r2c_1d(size, timeBuffer, fftwFrequencyBuffer, FFTW_ESTIMATE);
-    plans[static_cast<size_t>(i)].inverse =
-        fftwf_plan_dft_c2r_1d(size, fftwFrequencyBuffer, timeBuffer, FFTW_ESTIMATE);
-    if (plans[static_cast<size_t>(i)].forward == nullptr ||
-        plans[static_cast<size_t>(i)].inverse == nullptr) {
-      release();
-      return false;
+  auto plansCreated = true;
+  {
+    // Scoped so release() below runs after the unlock (release() takes the same lock).
+    const std::lock_guard<std::mutex> plannerLock(fftwPlannerMutex());
+    for (int i = 0; i < fftSizeCount && plansCreated; ++i) {
+      const auto size = fftSizes[static_cast<size_t>(i)];
+      auto* fftwFrequencyBuffer = reinterpret_cast<fftwf_complex*>(frequencyBuffer);
+      plans[static_cast<size_t>(i)].forward =
+          fftwf_plan_dft_r2c_1d(size, timeBuffer, fftwFrequencyBuffer, FFTW_ESTIMATE);
+      plans[static_cast<size_t>(i)].inverse =
+          fftwf_plan_dft_c2r_1d(size, fftwFrequencyBuffer, timeBuffer, FFTW_ESTIMATE);
+      plansCreated = plans[static_cast<size_t>(i)].forward != nullptr &&
+                     plans[static_cast<size_t>(i)].inverse != nullptr;
     }
+  }
+  if (!plansCreated) {
+    release();
+    return false;
   }
 
   fftSize = fftSizeAt(fftSizeIndex);
@@ -77,6 +94,7 @@ bool DtBlkFxEngine::prepare(int fftSizeIndex, double sampleRate)
     warpInput1.reserve(maximumBinCount + 1);
     warpOutput.reserve(maximumBinCount + 1);
     selectionMask.reserve(maximumBinCount);
+    effectMask.reserve(maximumBinCount); // setFftSize() resizes it on the audio thread
     remapSource.resize(static_cast<size_t>(fftBinCount(fftSize)));
     remapAccumulator.resize(static_cast<size_t>(fftBinCount(fftSize)));
     selectionMask.resize(static_cast<size_t>(fftBinCount(fftSize)));
@@ -106,12 +124,15 @@ bool DtBlkFxEngine::prepare(int fftSizeIndex, double sampleRate)
 
 void DtBlkFxEngine::release() noexcept
 {
-  for (auto& plan : plans) {
-    if (plan.forward != nullptr)
-      fftwf_destroy_plan(plan.forward);
-    if (plan.inverse != nullptr)
-      fftwf_destroy_plan(plan.inverse);
-    plan = {};
+  {
+    const std::lock_guard<std::mutex> plannerLock(fftwPlannerMutex());
+    for (auto& plan : plans) {
+      if (plan.forward != nullptr)
+        fftwf_destroy_plan(plan.forward);
+      if (plan.inverse != nullptr)
+        fftwf_destroy_plan(plan.inverse);
+      plan = {};
+    }
   }
 
   if (timeBuffer != nullptr)
