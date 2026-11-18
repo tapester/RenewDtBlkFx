@@ -43,4 +43,28 @@ inline int legacyValueToEffectType(float value) noexcept
   return static_cast<int>(value * 255.0f) / 8;
 }
 
+// Legacy FFT-length value (parameter 2) to an index into the engine's FFT plan table.
+// Not clamped: callers clamp to [0, DtBlkFxEngine::fftSizeCount - 1].
+inline int legacyValueToFftPlanIndex(float value) noexcept
+{
+  return static_cast<int>(value * 255.0f / 4.0f - 1.5f);
+}
+
+// Mix Back (parameter 0). Values up to 0.5 mean Power Match mode (mix 0..1); above 0.5 mean
+// Filter mode (mix 1..0). Encoder and decoders live together so they cannot drift apart.
+inline float mixBackToLegacyValue(float mixBack, bool powerMatch) noexcept
+{
+  return powerMatch ? mixBack * 0.5f : 1.0f - mixBack * 0.499f;
+}
+
+inline bool legacyValueIsPowerMatch(float value) noexcept
+{
+  return value <= 0.5f;
+}
+
+inline float legacyValueToMixBack(float value) noexcept
+{
+  return legacyValueIsPowerMatch(value) ? value * 2.0f : (1.0f - value) * (1.0f / 0.499f);
+}
+
 } // namespace DtBlkFxLegacy

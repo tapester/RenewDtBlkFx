@@ -1116,6 +1116,33 @@ bool testSweepEffects()
 }
 } // namespace
 
+static bool testFftPlanAndMixBackLegacyMapping()
+{
+  bool passed = true;
+
+  // The default Block Size parameter (72/255) selects plan 16 (4096), as in the legacy plug-in.
+  if (DtBlkFxLegacy::legacyValueToFftPlanIndex(72.0f / 255.0f) != 16) {
+    std::cerr << "Default Block Size parameter no longer selects plan 16\n";
+    passed = false;
+  }
+
+  // Encode then decode must return the original mix in both modes.
+  for (const bool powerMatch : {true, false}) {
+    for (const float mixBack : {0.0f, 0.25f, 0.5f, 0.75f, 1.0f}) {
+      const auto legacy = DtBlkFxLegacy::mixBackToLegacyValue(mixBack, powerMatch);
+      const auto decoded = DtBlkFxLegacy::legacyValueToMixBack(legacy);
+      if (DtBlkFxLegacy::legacyValueIsPowerMatch(legacy) != powerMatch ||
+          std::abs(decoded - mixBack) > 1.0e-5f) {
+        std::cerr << "Mix Back " << mixBack << " (power match " << powerMatch
+                  << ") round-tripped as " << decoded << '\n';
+        passed = false;
+      }
+    }
+  }
+
+  return passed;
+}
+
 static bool testEffectTypeLegacyMapping()
 {
   bool passed = true;
@@ -1229,5 +1256,6 @@ int main()
   passed &= testSweepEffects();
   passed &= testStereoEffects();
   passed &= testEffectTypeLegacyMapping();
+  passed &= testFftPlanAndMixBackLegacyMapping();
   return passed ? 0 : 1;
 }
