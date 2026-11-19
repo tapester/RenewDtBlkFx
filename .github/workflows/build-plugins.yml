@@ -22,17 +22,14 @@ jobs:
             os: windows-latest
             preset: windows-x64-tests
             build_dir: build/windows-x64-tests
-            triplet: x64-windows-static-md
           - name: macos-arm64
             os: macos-latest
             preset: macos-arm64-tests
             build_dir: build/macos-arm64-tests
-            triplet: arm64-osx
           - name: macos-x64
             os: macos-latest
             preset: macos-x64-tests
             build_dir: build/macos-x64-tests
-            triplet: x64-osx
 
     steps:
       - name: Checkout repo
@@ -59,13 +56,6 @@ jobs:
           "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $root | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Install FFTW3 (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          & "$env:GITHUB_WORKSPACE\modules\vcpkg\vcpkg.exe" install fftw3:${{ matrix.triplet }}
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Bootstrap vcpkg (macOS)
         if: runner.os != 'Windows'
         shell: bash
@@ -79,12 +69,8 @@ jobs:
           echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
           echo "$root" >> "$GITHUB_PATH"
 
-      - name: Install FFTW3 (macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: ./modules/vcpkg/vcpkg install fftw3:${{ matrix.triplet }}
-
       - name: Configure CMake
+        # vcpkg manifest mode (vcpkg.json) installs FFTW3 for the preset's triplet during configure.
         run: cmake --preset "${{ matrix.preset }}"
 
       - name: Build plugin bundles
