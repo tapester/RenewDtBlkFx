@@ -9,7 +9,11 @@
 
 | Done  | ID | Finding / Required fix                                                                                                                                                                                            | Risk if not addressed                                                                                                                      |
 | ----- | -: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+<<<<<<< HEAD
 | [X] |  1 | **FFTW planning is not thread-safe.** Add one `static std::mutex` and lock it around the FFTW plan creation loop in `prepare()` and destruction loop in `release()` (`src/DtBlkFxEngine.cpp:L37-62`, `L105-120`). | Concurrent initialization of multiple plug-in instances can cause crashes or memory corruption in some hosts.                              |
+=======
+|  [X] |  1 | **FFTW planning is not thread-safe.** Add one `static std::mutex` and lock it around the FFTW plan creation loop in `prepare()` and destruction loop in `release()` (`src/DtBlkFxEngine.cpp:L37-62`, `L105-120`). | Concurrent initialization of multiple plug-in instances can cause crashes or memory corruption in some hosts.                              |
+>>>>>>> 921122d (fixes.md)
 | [X] |  2 | **Prevent audio-thread memory allocation.** Add `effectMask.reserve(maximumBinCount);` alongside the other buffer reservations in `prepare()` (`DtBlkFxEngine.cpp:L70-84`, `L610-622`).                           | Automation that increases FFT size can trigger allocation on the audio thread, causing dropouts and violating constraint 2 in `AGENTS.md`. |
 
 ## 2. Should fix
@@ -26,7 +30,11 @@
 
 | Done  | ID | Finding / Required fix                                                                                                                                                                                                      | Risk if not addressed                                                                             |
 | ----- | -: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+<<<<<<< HEAD
 | [X] |  8 | **Clean up stale CMake comment.** Remove or update the comment above `CLAP_ID "com.tapester.dtblkfx"` stating that a permanent ID must be assigned. The ID is already set and should be considered frozen.                  | Documentation becomes misleading and may encourage unnecessary changes to the plug-in identifier. |
+=======
+| [ ] |  8 | **Clean up stale CMake comment.** Remove or update the comment above `CLAP_ID "com.tapester.dtblkfx"` stating that a permanent ID must be assigned. The ID is already set and should be considered frozen.                  | Documentation becomes misleading and may encourage unnecessary changes to the plug-in identifier. |
+>>>>>>> 921122d (fixes.md)
 | [X] |  9 | **Review diagnostic applications.** Decide whether to retain or retire `DtBlkFxFftSwitchDiagnostic`, `DtBlkFxEffectComparison` and `DtBlkFxEffectProbe` (2,182 lines combined). Verify that they still compile if retained. | Unused diagnostic code increases maintenance overhead.                                            |
 
 ## 4. Recommended implementation order
