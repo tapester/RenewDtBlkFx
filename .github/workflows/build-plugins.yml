@@ -83,8 +83,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $bundle = "${{ matrix.build_dir }}/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
-          $binary = Join-Path $bundle "Contents/x86_64-win/DtBlkFx.vst3"
+          $bundle = "${{ matrix.build_dir }}/DtBlkFx_artefacts/Release/VST3/RenewDtBlkFx.vst3"
+          $binary = Join-Path $bundle "Contents/x86_64-win/RenewDtBlkFx.vst3"
           if (-not (Test-Path $binary)) { throw "Plugin binary not found: $binary" }
           $dependents = dumpbin /dependents $binary | Out-String
           Write-Host $dependents
@@ -155,13 +155,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          pluginval.exe --strictness-level 5 --skip-gui-tests "${{ matrix.build_dir }}/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
+          pluginval.exe --strictness-level 5 --skip-gui-tests "${{ matrix.build_dir }}/DtBlkFx_artefacts/Release/VST3/RenewDtBlkFx.vst3"
 
       - name: Validate VST3 (macOS)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          pluginval --strictness-level 5 --skip-gui-tests "${{ matrix.build_dir }}/DtBlkFx_artefacts/Release/VST3/DtBlkFx.vst3"
+          pluginval --strictness-level 5 --skip-gui-tests "${{ matrix.build_dir }}/DtBlkFx_artefacts/Release/VST3/RenewDtBlkFx.vst3"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

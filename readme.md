@@ -112,7 +112,7 @@ preset.
 It still needs the Microsoft Visual C++ 2015-2022 Redistributable.
 
 `windows-x64-dynamic-fftw` stages `fftw3f.dll` beside each plug-in binary.
-Install the complete `DtBlkFx.vst3` bundle, including
+Install the complete `RenewDtBlkFx.vst3` bundle, including
 `Contents/x86_64-win/fftw3f.dll`. Some hosts, including pluginval, do not
 search the plug-in folder for DLLs and fail to load this variant, so prefer
 the static build.
@@ -134,7 +134,7 @@ user-level directories are `~/Library/Audio/Plug-Ins/VST3` and
 `~/Library/Audio/Plug-Ins/CLAP`:
 
 ```bash
-ditto "path/to/DtBlkFx.vst3" "$HOME/Library/Audio/Plug-Ins/VST3/DtBlkFx.vst3"
+ditto "path/to/RenewDtBlkFx.vst3" "$HOME/Library/Audio/Plug-Ins/VST3/RenewDtBlkFx.vst3"
 ```
 
 Restart the DAW or rescan its plug-in folders. To check the architecture of
@@ -144,7 +144,7 @@ Validate with [pluginval](https://github.com/Tracktion/pluginval) (CI uses
 1.0.4):
 
 ```bash
-pluginval --strictness-level 5 --skip-gui-tests path/to/DtBlkFx.vst3
+pluginval --strictness-level 5 --skip-gui-tests path/to/RenewDtBlkFx.vst3
 ```
 
 A successful pluginval run does not prove that every effect or host
