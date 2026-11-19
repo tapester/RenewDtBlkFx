@@ -2,8 +2,8 @@ name: Build DtBlkFx plugins
 
 on:
   push:
-    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -164,6 +164,7 @@ jobs:
           pluginval --strictness-level 5 --skip-gui-tests "${{ matrix.build_dir }}/DtBlkFx_artefacts/Release/VST3/RenewDtBlkFx.vst3"
 
       - name: Install Rust toolchain
+        if: runner.os != 'Windows'  
         uses: dtolnay/rust-toolchain@stable
         with:
           profile: minimal
@@ -175,12 +176,38 @@ jobs:
           path: tools/clap-validator
 
       - name: Build clap-validator
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           cd tools/clap-validator
           cargo build --release
 
+      - name: Download clap-validator (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Hardcode the version of clap-validator to download. This should be updated when a new release is published.
+          $version = "0.4.1-127-g152b982 "
+          $zip = "$env:RUNNER_TEMP\clap-validator.zip"
+          Invoke-WebRequest `
+            "https://github.com/free-audio/clap-validator/releases/download/$version/clap-validator-$version-windows.zip" `
+            -OutFile $zip
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\tools\clap-validator" -Force
+          "CLAP_VALIDATOR=$env:RUNNER_TEMP\tools\clap-validator\clap-validator.exe" >> $env:GITHUB_ENV
+
+      - name: Validate CLAP (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          clap="$(find artifacts/clap -iname '*.clap' -print -quit)"
+          if [[ -z "$clap" ]]; then
+            echo "No CLAP artifact found" >&2
+            exit 1
+          fi
+          & $env:CLAP_VALIDATOR validate "$clap"
+
       - name: Validate CLAP with clap-validator
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           clap="$(find artifacts/clap -iname '*.clap' -print -quit)"

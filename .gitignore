@@ -1,8 +1,11 @@
 # CMake and JUCE build products. The presets write all generated builds here.
 /build/
 
-# PlugiVal executable
+# PluginVal executable
 /tools/pluginval/
+
+# CLAP Validator executable
+/tools/clap-validator/
 
 # VCPKG on Macos
 /vcpkg_installed/
