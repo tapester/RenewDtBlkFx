@@ -563,7 +563,7 @@ void DtBlkFxAudioProcessorEditor::loadPreset(int itemId)
     return;
   }
 
-  if (!userPresets.isValidIndex(itemId - 2))
+  if (!juce::isPositiveAndBelow(itemId - 2, userPresets.size()))
     return;
   // Go through the host-state path so presets get the same validation and NaN repair.
   if (const auto xml = juce::XmlDocument::parse(userPresets[itemId - 2])) {
@@ -600,24 +600,19 @@ void DtBlkFxAudioProcessorEditor::promptForName(std::function<void(const juce::S
 
 void DtBlkFxAudioProcessorEditor::confirm(const juce::String& message, std::function<void()> onOk)
 {
-  juce::AlertWindow::showOkCancelBox(
-      juce::MessageBoxIconType::QuestionIcon,
-      "DtBlkFx",
-      message,
-      "OK",
-      "Cancel",
-      this,
-      juce::ModalCallbackFunction::create(
-          [self = juce::Component::SafePointer<juce::Component>(this), onOk](int result) {
-            if (result == 1 && self != nullptr)
-              onOk();
-          }));
+  juce::AlertWindow::showAsync(
+      juce::MessageBoxOptions::makeOptionsOkCancel(
+          juce::MessageBoxIconType::QuestionIcon, "DtBlkFx", message, "OK", "Cancel", this),
+      [self = juce::Component::SafePointer<juce::Component>(this), onOk](int result) {
+        if (result == 1 && self != nullptr)
+          onOk();
+      });
 }
 
 void DtBlkFxAudioProcessorEditor::showPresetMenu()
 {
   const auto selectedId = presetDropdown.getSelectedId();
-  const auto isUserPreset = selectedId > 1 && userPresets.isValidIndex(selectedId - 2);
+  const auto isUserPreset = juce::isPositiveAndBelow(selectedId - 2, userPresets.size());
 
   juce::PopupMenu menu;
   menu.addItem(1, "Save", isUserPreset);
