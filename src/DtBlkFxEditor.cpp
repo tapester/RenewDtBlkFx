@@ -341,7 +341,7 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
     : AudioProcessorEditor(&processor)
     , processorRef(processor)
 {
-  title.setText("DtBlkFx  |  FFT EFFECT CHAIN", juce::dontSendNotification);
+  title.setText("Fast-Fourier-Transform spectral processing", juce::dontSendNotification);
   title.setFont(juce::Font(20.0f, juce::Font::bold));
   title.setJustificationType(juce::Justification::centredLeft);
   addAndMakeVisible(title);

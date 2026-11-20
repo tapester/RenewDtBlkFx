@@ -208,7 +208,7 @@ jobs:
           }
           & $env:CLAP_VALIDATOR validate $clap.FullName
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
+          
       - name: Validate CLAP with clap-validator
         if: runner.os != 'Windows'
         shell: bash
