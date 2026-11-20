@@ -22,6 +22,7 @@
 #include "DtBlkFxProcessor.h"
 
 #include <array>
+#include <functional>
 #include <memory>
 
 class DtBlkFxAudioProcessorEditor : public juce::AudioProcessorEditor {
@@ -40,11 +41,25 @@ private:
   void configureSlider(juce::Slider&, juce::Label&, const juce::String&);
   void updateEffectControls(size_t slot);
 
+  // User presets are plain XML files holding the parameter tree (same payload as host state).
+  static juce::File userPresetDirectory();
+  void refreshPresets(const juce::File& select = {});
+  void loadPreset(int itemId);
+  void showPresetMenu();
+  void saveCurrentTo(const juce::File&);
+  void promptForName(std::function<void(const juce::String&)> onName);
+  void confirm(const juce::String& message, std::function<void()> onOk);
+  void importPreset();
+  void exportPreset();
+
   DtBlkFxAudioProcessor& processorRef;
   juce::Viewport viewport;
   juce::Component content;
   juce::Label title;
   juce::ComboBox presetDropdown;
+  juce::TextButton presetMenuButton{"..."};
+  juce::Array<juce::File> userPresets; // dropdown item id = index + 2 (id 1 is "Default")
+  std::unique_ptr<juce::FileChooser> fileChooser;
   juce::GroupComponent globalGroup;
   std::array<juce::Slider, 4> globalSliders;
   std::array<juce::Label, 4> globalLabels;
