@@ -170,6 +170,7 @@ jobs:
           profile: minimal
 
       - name: Checkout clap-validator
+        if: runner.os != 'Windows'
         uses: actions/checkout@v4
         with:
           repository: free-audio/clap-validator
@@ -186,11 +187,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Hardcode the version of clap-validator to download. This should be updated when a new release is published.
-          $version = "0.4.1-127-g152b982 "
+          # Hardcode the release to download; update both values when a new clap-validator release is published.
+          # $tag is the release tag; $zipName is the exact asset name from that release.
+          $tag = "0.4.1"
+          $zipName = "clap-validator-0.4.1-127-g152b982-windows.zip"
           $zip = "$env:RUNNER_TEMP\clap-validator.zip"
           Invoke-WebRequest `
-            "https://github.com/free-audio/clap-validator/releases/download/$version/clap-validator-$version-windows.zip" `
+            "https://github.com/free-audio/clap-validator/releases/download/$tag/$zipName" `
             -OutFile $zip
           Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\tools\clap-validator" -Force
           "CLAP_VALIDATOR=$env:RUNNER_TEMP\tools\clap-validator\clap-validator.exe" >> $env:GITHUB_ENV
@@ -199,12 +202,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          clap="$(find artifacts/clap -iname '*.clap' -print -quit)"
-          if [[ -z "$clap" ]]; then
-            echo "No CLAP artifact found" >&2
-            exit 1
-          fi
-          & $env:CLAP_VALIDATOR validate "$clap"
+          $clap = Get-ChildItem -Path artifacts/clap -Recurse -Filter *.clap | Select-Object -First 1
+          if ($null -eq $clap) {
+            throw "No CLAP artifact found"
+          }
+          & $env:CLAP_VALIDATOR validate $clap.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Validate CLAP with clap-validator
         if: runner.os != 'Windows'
