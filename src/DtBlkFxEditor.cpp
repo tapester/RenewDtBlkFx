@@ -347,9 +347,12 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
   addAndMakeVisible(title);
 
   presetDropdown.setTextWhenNothingSelected("Presets");
-  presetDropdown.addItem("Default", 1);
-  presetDropdown.setSelectedId(1, juce::dontSendNotification);
+  presetDropdown.onChange = [this] { loadPreset(presetDropdown.getSelectedId()); };
+  refreshPresets();
   addAndMakeVisible(presetDropdown);
+
+  presetMenuButton.onClick = [this] { showPresetMenu(); };
+  addAndMakeVisible(presetMenuButton);
 
   viewport.setViewedComponent(&content, false);
   // The eight effect slots exceed the editor height, so the content scrolls vertically.
@@ -519,6 +522,196 @@ DtBlkFxAudioProcessorEditor::~DtBlkFxAudioProcessorEditor()
   viewport.setViewedComponent(nullptr, false);
 }
 
+namespace {
+bool writeXml(const juce::XmlElement* xml, const juce::File& file)
+{
+  if (xml != nullptr && file.getParentDirectory().createDirectory().wasOk() && xml->writeTo(file))
+    return true;
+  juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                         "Preset error",
+                                         "Could not write " + file.getFullPathName());
+  return false;
+}
+} // namespace
+
+juce::File DtBlkFxAudioProcessorEditor::userPresetDirectory()
+{
+  return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+      .getChildFile("DtBlkFx/Presets");
+}
+
+void DtBlkFxAudioProcessorEditor::refreshPresets(const juce::File& select)
+{
+  userPresets = userPresetDirectory().findChildFiles(juce::File::findFiles, false, "*.xml");
+  std::sort(userPresets.begin(), userPresets.end(), [](const juce::File& a, const juce::File& b) {
+    return a.getFileName().compareNatural(b.getFileName()) < 0;
+  });
+
+  presetDropdown.clear(juce::dontSendNotification);
+  presetDropdown.addItem("Default", 1);
+  for (int i = 0; i < userPresets.size(); ++i)
+    presetDropdown.addItem(userPresets[i].getFileNameWithoutExtension(), i + 2);
+  // indexOf() is -1 when nothing is selected, which lands on "Default" (id 1).
+  presetDropdown.setSelectedId(userPresets.indexOf(select) + 2, juce::dontSendNotification);
+}
+
+void DtBlkFxAudioProcessorEditor::loadPreset(int itemId)
+{
+  if (itemId == 1) {
+    for (auto* parameter : processorRef.getParameters())
+      parameter->setValueNotifyingHost(parameter->getDefaultValue());
+    return;
+  }
+
+  if (!juce::isPositiveAndBelow(itemId - 2, userPresets.size()))
+    return;
+  // Go through the host-state path so presets get the same validation and NaN repair.
+  if (const auto xml = juce::XmlDocument::parse(userPresets[itemId - 2])) {
+    juce::MemoryBlock block;
+    juce::AudioProcessor::copyXmlToBinary(*xml, block);
+    processorRef.setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+  }
+}
+
+void DtBlkFxAudioProcessorEditor::saveCurrentTo(const juce::File& file)
+{
+  const auto xml = processorRef.parameters.copyState().createXml();
+  if (writeXml(xml.get(), file))
+    refreshPresets(file);
+}
+
+void DtBlkFxAudioProcessorEditor::promptForName(std::function<void(const juce::String&)> onName)
+{
+  auto* window = new juce::AlertWindow(
+      "Save Preset", "Preset name:", juce::MessageBoxIconType::NoIcon, this);
+  window->addTextEditor("name", presetDropdown.getSelectedId() > 1 ? presetDropdown.getText() : "");
+  window->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+  window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+  window->enterModalState(
+      true,
+      juce::ModalCallbackFunction::create(
+          [self = juce::Component::SafePointer<juce::Component>(this), window, onName](int result) {
+            // The window is still alive here; it is deleted after the callback returns.
+            if (result == 1 && self != nullptr)
+              onName(window->getTextEditorContents("name"));
+          }),
+      true);
+}
+
+void DtBlkFxAudioProcessorEditor::confirm(const juce::String& message, std::function<void()> onOk)
+{
+  juce::AlertWindow::showAsync(
+      juce::MessageBoxOptions::makeOptionsOkCancel(
+          juce::MessageBoxIconType::QuestionIcon, "DtBlkFx", message, "OK", "Cancel", this),
+      [self = juce::Component::SafePointer<juce::Component>(this), onOk](int result) {
+        if (result == 1 && self != nullptr)
+          onOk();
+      });
+}
+
+void DtBlkFxAudioProcessorEditor::showPresetMenu()
+{
+  const auto selectedId = presetDropdown.getSelectedId();
+  const auto isUserPreset = juce::isPositiveAndBelow(selectedId - 2, userPresets.size());
+
+  juce::PopupMenu menu;
+  menu.addItem(1, "Save", isUserPreset);
+  menu.addItem(2, "Save As...");
+  menu.addItem(3, "Delete", isUserPreset);
+  menu.addSeparator();
+  menu.addItem(4, "Import...");
+  menu.addItem(5, "Export...");
+
+  menu.showMenuAsync(
+      juce::PopupMenu::Options().withTargetComponent(presetMenuButton),
+      [self = juce::Component::SafePointer<DtBlkFxAudioProcessorEditor>(this),
+       selected = isUserPreset ? userPresets[selectedId - 2] : juce::File()](int result) {
+        if (self == nullptr)
+          return;
+        switch (result) {
+          case 1:
+            self->saveCurrentTo(selected);
+            break;
+          case 2:
+            self->promptForName([self](const juce::String& name) {
+              const auto legal = juce::File::createLegalFileName(name.trim()).trim();
+              if (legal.isEmpty())
+                return;
+              const auto file = userPresetDirectory().getChildFile(legal + ".xml");
+              if (file.existsAsFile())
+                self->confirm("Overwrite preset \"" + legal + "\"?",
+                              [self, file] { self->saveCurrentTo(file); });
+              else
+                self->saveCurrentTo(file);
+            });
+            break;
+          case 3:
+            self->confirm("Delete preset \"" + selected.getFileNameWithoutExtension() + "\"?",
+                          [self, selected] {
+                            if (selected.deleteFile())
+                              // Label only: the sound stays as it is, so nothing is lost.
+                              self->refreshPresets();
+                          });
+            break;
+          case 4:
+            self->importPreset();
+            break;
+          case 5:
+            self->exportPreset();
+            break;
+          default:
+            break;
+        }
+      });
+}
+
+void DtBlkFxAudioProcessorEditor::importPreset()
+{
+  fileChooser = std::make_unique<juce::FileChooser>(
+      "Import preset", userPresetDirectory(), "*.xml;*.blkfx");
+  fileChooser->launchAsync(
+      juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+      [this](const juce::FileChooser& chooser) {
+        const auto source = chooser.getResult();
+        if (!source.existsAsFile())
+          return;
+
+        const auto xml = juce::XmlDocument::parse(source);
+        if (xml == nullptr || !xml->hasTagName(processorRef.parameters.state.getType())) {
+          juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                 "Import failed",
+                                                 "This is not a DtBlkFx preset.");
+          return;
+        }
+
+        // Copy into the user folder under a free name so an import never overwrites a preset.
+        const auto copy = userPresetDirectory().getNonexistentChildFile(
+            juce::File::createLegalFileName(source.getFileNameWithoutExtension()), ".xml", false);
+        if (!writeXml(xml.get(), copy))
+          return;
+        refreshPresets(copy);
+        loadPreset(presetDropdown.getSelectedId());
+      });
+}
+
+void DtBlkFxAudioProcessorEditor::exportPreset()
+{
+  fileChooser = std::make_unique<juce::FileChooser>(
+      "Export preset", userPresetDirectory().getChildFile("preset.xml"), "*.xml;*.blkfx");
+  fileChooser->launchAsync(
+      juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles |
+          juce::FileBrowserComponent::warnAboutOverwriting,
+      [this](const juce::FileChooser& chooser) {
+        auto target = chooser.getResult();
+        if (target == juce::File())
+          return;
+        if (!target.hasFileExtension("xml;blkfx"))
+          target = target.withFileExtension("xml");
+        const auto xml = processorRef.parameters.copyState().createXml();
+        writeXml(xml.get(), target);
+      });
+}
+
 void DtBlkFxAudioProcessorEditor::configureSlider(juce::Slider& slider,
                                                   juce::Label& label,
                                                   const juce::String& text)
@@ -580,8 +773,12 @@ void DtBlkFxAudioProcessorEditor::resized()
   const int presetWidth = 200;
   const int headerRightMargin = 16;
   const int headerGap = 12;
-  title.setBounds(136, 5, juce::jmax(120, getWidth() - 136 - presetWidth - headerGap - headerRightMargin), 36);
-  presetDropdown.setBounds(getWidth() - presetWidth - headerRightMargin, 9, presetWidth, 28);
+  const int menuButtonWidth = 36;
+  const int menuButtonGap = 6;
+  const int presetRight = getWidth() - headerRightMargin - menuButtonWidth - menuButtonGap;
+  title.setBounds(136, 5, juce::jmax(120, presetRight - presetWidth - headerGap - 136), 36);
+  presetDropdown.setBounds(presetRight - presetWidth, 9, presetWidth, 28);
+  presetMenuButton.setBounds(presetRight + menuButtonGap, 9, menuButtonWidth, 28);
   viewport.setBounds(8, 44, getWidth() - 16, getHeight() - 52);
 
   // Keep controls usable at narrow sizes; the viewport supplies scrolling for vertical overflow.
