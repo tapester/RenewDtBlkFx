@@ -1,6 +1,6 @@
 # DtBlkFx Audio FX Plug-in
 
-DtBlkFx is an FFT-based audio effects plug-in (VST3 and CLAP).
+RenewDtBlkFx is an FFT-based audio effects plug-in (VST3 and CLAP) implemented using the JUCE framework and the FFTW library.
 
 Forked from https://codeberg.org/skullzy/DtBlkFx. The original VST2 code is in the
 [`legacy` branch](https://github.com/tapester/RenewDtBlkFx/tree/legacy).
@@ -46,10 +46,9 @@ The project uses CMake, Ninja, JUCE, clap-juce-extensions and vcpkg.
 | Windows | x64 (static FFTW) | `windows-x64` |
 | Windows | x64, dynamic FFTW | `windows-x64-dynamic-fftw` |
 | macOS | Apple Silicon (arm64) | `macos-arm64` |
-| macOS | Intel (x86_64) | `macos-x64` |
 
 The release presets build the plug-in only. The `*-tests` presets
-(`windows-x64-tests`, `macos-arm64-tests`, `macos-x64-tests`) also build the
+(`windows-x64-tests`, `macos-arm64-tests`) also build the
 test executables.
 
 ### Prerequisites
@@ -212,16 +211,9 @@ or a larger host buffer.
 
 ## Remaining porting activities
 
-1. **Validate scheduler and automation compatibility:** compare startup,
-   latency and delay transitions against legacy renders. Add a
-   callback-boundary compatibility mode only if reference behavior requires
-   it, and sample-accurate automation only if a supported JUCE format path
-   exposes event timestamps.
-2. **Reduce frame-time spikes:** see "CPU load with large block sizes".
-   Options are a worker thread or time slicing within spare latency.
-3. **Port the live visualization:** publish input/output spectra to the
+- **Port the live visualization:** publish input/output spectra to the
    editor safely, independent of the editor's lifetime.
-4. **Complete release validation:** verify preset/state migration, transport
+- **Complete release validation:** verify preset/state migration, transport
    and sample-rate changes, channel layouts, and latency/tail reporting;
    expand DSP regressions with edge frequencies, zero/full amplitude and
    legacy reference renders; run pluginval and host smoke tests for both

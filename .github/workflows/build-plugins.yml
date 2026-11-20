@@ -26,10 +26,6 @@ jobs:
             os: macos-latest
             preset: macos-arm64-tests
             build_dir: build/macos-arm64-tests
-          - name: macos-x64
-            os: macos-latest
-            preset: macos-x64-tests
-            build_dir: build/macos-x64-tests
 
     steps:
       - name: Checkout repo
