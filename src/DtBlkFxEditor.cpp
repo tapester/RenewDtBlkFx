@@ -346,6 +346,11 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
   title.setJustificationType(juce::Justification::centredLeft);
   addAndMakeVisible(title);
 
+  presetDropdown.setTextWhenNothingSelected("Presets");
+  presetDropdown.addItem("Default", 1);
+  presetDropdown.setSelectedId(1, juce::dontSendNotification);
+  addAndMakeVisible(presetDropdown);
+
   viewport.setViewedComponent(&content, false);
   // The eight effect slots exceed the editor height, so the content scrolls vertically.
   viewport.setScrollBarsShown(true, false);
@@ -502,7 +507,10 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
     };
     effectTypeAttachments[slot]->sendInitialUpdate();
   }
-
+  // Minimum size keeps the 600 px content column and the Global section fully visible; the
+  // default maximum (50000) leaves the window free to grow.
+  setResizable(true, true);
+  setResizeLimits(700, 500, 2400, 1800);
   setSize(1100, 780);
 }
 
@@ -569,7 +577,11 @@ void DtBlkFxAudioProcessorEditor::paint(juce::Graphics& graphics)
 
 void DtBlkFxAudioProcessorEditor::resized()
 {
-  title.setBounds(136, 5, getWidth() - 152, 36);
+  const int presetWidth = 200;
+  const int headerRightMargin = 16;
+  const int headerGap = 12;
+  title.setBounds(136, 5, juce::jmax(120, getWidth() - 136 - presetWidth - headerGap - headerRightMargin), 36);
+  presetDropdown.setBounds(getWidth() - presetWidth - headerRightMargin, 9, presetWidth, 28);
   viewport.setBounds(8, 44, getWidth() - 16, getHeight() - 52);
 
   // Keep controls usable at narrow sizes; the viewport supplies scrolling for vertical overflow.

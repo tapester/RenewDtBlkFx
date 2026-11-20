@@ -44,6 +44,7 @@ private:
   juce::Viewport viewport;
   juce::Component content;
   juce::Label title;
+  juce::ComboBox presetDropdown;
   juce::GroupComponent globalGroup;
   std::array<juce::Slider, 4> globalSliders;
   std::array<juce::Label, 4> globalLabels;
