@@ -1,9 +1,8 @@
 name: Build DtBlkFx plugins
 
 on:
-  push:
   pull_request:
-    branches: [main]
+      branches: [main]
   workflow_dispatch:
 
 permissions:
