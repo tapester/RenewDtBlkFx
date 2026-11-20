@@ -141,10 +141,12 @@ Restart the DAW or rescan its plug-in folders. To check the architecture of
 a macOS build, run `file` on the executable in `Contents/MacOS`.
 
 Validate with [pluginval](https://github.com/Tracktion/pluginval) (CI uses
-1.0.4):
+1.0.4) and [clap-validator](https://github.com/free-audio/clap-validator):
 
 ```bash
 pluginval --strictness-level 5 --skip-gui-tests path/to/RenewDtBlkFx.vst3
+
+clap-validator validate path/to/RenewDtBlkFx.clap
 ```
 
 A successful pluginval run does not prove that every effect or host
