@@ -19,11 +19,13 @@
 
 #pragma once
 
+#include "DtBlkFxFactoryPresets.h"
 #include "DtBlkFxProcessor.h"
 
 #include <array>
 #include <functional>
 #include <memory>
+#include <vector>
 
 class DtBlkFxAudioProcessorEditor : public juce::AudioProcessorEditor {
 public:
@@ -58,7 +60,10 @@ private:
   juce::Label title;
   juce::ComboBox presetDropdown;
   juce::TextButton presetMenuButton{"..."};
-  juce::Array<juce::File> userPresets; // dropdown item id = index + 2 (id 1 is "Default")
+  // Dropdown item ids: 1 is "Default", then the factory presets, then the user presets.
+  std::vector<DtBlkFxFactory::Preset> factoryPresets;
+  juce::Array<juce::File> userPresets;
+  int firstUserId() const { return 2 + static_cast<int>(factoryPresets.size()); }
   std::unique_ptr<juce::FileChooser> fileChooser;
   juce::GroupComponent globalGroup;
   std::array<juce::Slider, 4> globalSliders;

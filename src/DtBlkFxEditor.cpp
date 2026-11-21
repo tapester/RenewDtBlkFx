@@ -19,6 +19,7 @@
 
 #include "DtBlkFxEditor.h"
 #include "DtBlkFxEngine.h"
+#include "DtBlkFxFactoryPresets.h"
 
 #include <algorithm>
 #include <cmath>
@@ -348,6 +349,7 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
 
   presetDropdown.setTextWhenNothingSelected("Presets");
   presetDropdown.onChange = [this] { loadPreset(presetDropdown.getSelectedId()); };
+  factoryPresets = DtBlkFxFactory::parsePresets(DtBlkFxFactory::presetText());
   refreshPresets();
   addAndMakeVisible(presetDropdown);
 
@@ -549,10 +551,15 @@ void DtBlkFxAudioProcessorEditor::refreshPresets(const juce::File& select)
 
   presetDropdown.clear(juce::dontSendNotification);
   presetDropdown.addItem("Default", 1);
+  for (size_t i = 0; i < factoryPresets.size(); ++i)
+    presetDropdown.addItem(factoryPresets[i].name, static_cast<int>(i) + 2);
+  if (!userPresets.isEmpty())
+    presetDropdown.addSeparator();
   for (int i = 0; i < userPresets.size(); ++i)
-    presetDropdown.addItem(userPresets[i].getFileNameWithoutExtension(), i + 2);
-  // indexOf() is -1 when nothing is selected, which lands on "Default" (id 1).
-  presetDropdown.setSelectedId(userPresets.indexOf(select) + 2, juce::dontSendNotification);
+    presetDropdown.addItem(userPresets[i].getFileNameWithoutExtension(), i + firstUserId());
+  const auto selectedIndex = userPresets.indexOf(select);
+  presetDropdown.setSelectedId(selectedIndex < 0 ? 1 : selectedIndex + firstUserId(),
+                               juce::dontSendNotification);
 }
 
 void DtBlkFxAudioProcessorEditor::loadPreset(int itemId)
@@ -563,10 +570,16 @@ void DtBlkFxAudioProcessorEditor::loadPreset(int itemId)
     return;
   }
 
-  if (!juce::isPositiveAndBelow(itemId - 2, userPresets.size()))
+  if (itemId < firstUserId()) {
+    if (juce::isPositiveAndBelow(itemId - 2, factoryPresets.size()))
+      processorRef.setLegacyParameterBlock(factoryPresets[static_cast<size_t>(itemId - 2)].values);
+    return;
+  }
+
+  if (!juce::isPositiveAndBelow(itemId - firstUserId(), userPresets.size()))
     return;
   // Go through the host-state path so presets get the same validation and NaN repair.
-  if (const auto xml = juce::XmlDocument::parse(userPresets[itemId - 2])) {
+  if (const auto xml = juce::XmlDocument::parse(userPresets[itemId - firstUserId()])) {
     juce::MemoryBlock block;
     juce::AudioProcessor::copyXmlToBinary(*xml, block);
     processorRef.setStateInformation(block.getData(), static_cast<int>(block.getSize()));
@@ -612,7 +625,8 @@ void DtBlkFxAudioProcessorEditor::confirm(const juce::String& message, std::func
 void DtBlkFxAudioProcessorEditor::showPresetMenu()
 {
   const auto selectedId = presetDropdown.getSelectedId();
-  const auto isUserPreset = juce::isPositiveAndBelow(selectedId - 2, userPresets.size());
+  const auto userIndex = selectedId - firstUserId();
+  const auto isUserPreset = juce::isPositiveAndBelow(userIndex, userPresets.size());
 
   juce::PopupMenu menu;
   menu.addItem(1, "Save", isUserPreset);
@@ -625,7 +639,7 @@ void DtBlkFxAudioProcessorEditor::showPresetMenu()
   menu.showMenuAsync(
       juce::PopupMenu::Options().withTargetComponent(presetMenuButton),
       [self = juce::Component::SafePointer<DtBlkFxAudioProcessorEditor>(this),
-       selected = isUserPreset ? userPresets[selectedId - 2] : juce::File()](int result) {
+       selected = isUserPreset ? userPresets[userIndex] : juce::File()](int result) {
         if (self == nullptr)
           return;
         switch (result) {
