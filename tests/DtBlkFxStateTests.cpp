@@ -20,6 +20,7 @@
 // JUCE-linked state and parameter tests: saving and loading, damaged state, parameter
 // resolution and automation through the real processor.
 
+#include "DtBlkFxFactoryPresets.h"
 #include "DtBlkFxLegacyMapping.h"
 #include "DtBlkFxProcessor.h"
 
@@ -403,12 +404,45 @@ void runTest(const char* name, void (*test)())
 
 } // namespace
 
+void testFactoryPresets()
+{
+  // Parsing follows the legacy loader: stops at a non-number, clamps, missing values stay 0.
+  const auto parsed =
+      DtBlkFxFactory::parsePresets("odd:0.5 0.25, 1\nbig:2 -1\nno colon\n--sep:1\n");
+  if (check(parsed.size() == 2, "expected 2 parsed presets")) {
+    const auto& odd = parsed[0].values;
+    check(odd[0] == 0.5f && odd[1] == 0.25f && odd[2] == 0.0f,
+          "a comma must end the values of a line");
+    check(parsed[1].values[0] == 1.0f && parsed[1].values[1] == 0.0f, "values must be clamped");
+  }
+
+  const auto presets = DtBlkFxFactory::parsePresets(DtBlkFxFactory::presetText());
+  check(presets.size() == 40, "expected 40 factory presets, got " + std::to_string(presets.size()));
+
+  // Applying a legacy program and reading the engine block back must give the same program.
+  for (const auto& preset : presets) {
+    Processor processor;
+    processor.setLegacyParameterBlock(preset.values);
+    const auto block = processor.getLegacyParameterBlock();
+    for (size_t i = 0; i < block.size(); ++i) {
+      const auto isType = i >= 4 && (i - 4) % 5 == 3;
+      const auto same =
+          isType ? DtBlkFxLegacy::legacyValueToEffectType(block[i]) ==
+                       DtBlkFxLegacy::legacyValueToEffectType(preset.values[i])
+                 : nearlyEqual(block[i], preset.values[i], 1.0e-3f);
+      check(same, preset.name + ": legacy value " + std::to_string(i) + " is " +
+                      std::to_string(block[i]) + ", expected " + std::to_string(preset.values[i]));
+    }
+  }
+}
+
 int main()
 {
   juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
   runTest("state format", testStateFormat);
   runTest("save and load round trip", testRoundTrip);
+  runTest("factory presets", testFactoryPresets);
   runTest("damaged state", testDamagedState);
   runTest("parameter resolution", testParameterResolution);
   runTest("state change while playing", testStateChangeWhilePlaying);

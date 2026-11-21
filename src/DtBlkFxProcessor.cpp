@@ -312,6 +312,36 @@ DtBlkFxAudioProcessor::LegacyParameterBlock DtBlkFxAudioProcessor::getLegacyPara
   return legacy;
 }
 
+void DtBlkFxAudioProcessor::setLegacyParameterBlock(const LegacyParameterBlock& legacy)
+{
+  const auto set = [this](const juce::String& id, float plainValue) {
+    if (auto* parameter = parameters.getParameter(id))
+      parameter->setValueNotifyingHost(parameter->convertTo0to1(plainValue));
+  };
+
+  // Mix Back and Overlap each carry a mode in the legacy value; see getLegacyParameterBlock().
+  set("power_match", DtBlkFxLegacy::legacyValueIsPowerMatch(legacy[0]) ? 1.0f : 0.0f);
+  set("mixback", DtBlkFxLegacy::legacyValueToMixBack(legacy[0]));
+  set("delay", legacy[1]);
+  set("fft_len", legacy[2]);
+
+  const auto blockSync = legacy[3] > 0.5f; // the engine's threshold for the sync mode
+  set("block_sync", blockSync ? 1.0f : 0.0f);
+  set("overlap", (blockSync ? 1.0f - legacy[3] : legacy[3]) * 2.0f);
+
+  for (int slot = 0; slot < 8; ++slot) {
+    const auto offset = static_cast<size_t>(4 + slot * 5);
+    set(fxParameterID(slot, "freq_a"), legacy[offset]);
+    set(fxParameterID(slot, "freq_b"), legacy[offset + 1]);
+    set(fxParameterID(slot, "amp"), legacy[offset + 2]);
+    set(fxParameterID(slot, "type"),
+        static_cast<float>(std::clamp(DtBlkFxLegacy::legacyValueToEffectType(legacy[offset + 3]),
+                                      0,
+                                      DtBlkFxLegacy::effectTypeCount - 1)));
+    set(fxParameterID(slot, "value"), legacy[offset + 4]);
+  }
+}
+
 void DtBlkFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
   juce::ignoreUnused(samplesPerBlock);
