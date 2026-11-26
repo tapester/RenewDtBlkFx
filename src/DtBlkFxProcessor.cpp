@@ -319,6 +319,16 @@ void DtBlkFxAudioProcessor::setLegacyParameterBlock(const LegacyParameterBlock& 
       parameter->setValueNotifyingHost(parameter->convertTo0to1(plainValue));
   };
 
+  // The latency caps the Block Size, so pick the smallest choice that fits the program's size,
+  // but not less than the default.
+  const auto needed = std::max(DtBlkFxEngine::fftSizeAt(getLegacyFftPlanIndex(legacy[2])),
+                               latencyChoiceSizes[defaultLatencyChoice]);
+  auto best = std::max_element(latencyChoiceSizes.begin(), latencyChoiceSizes.end());
+  for (auto choice = latencyChoiceSizes.begin(); choice != latencyChoiceSizes.end(); ++choice)
+    if (*choice >= needed && *choice < *best)
+      best = choice;
+  set("latency", static_cast<float>(best - latencyChoiceSizes.begin()));
+
   // Mix Back and Overlap each carry a mode in the legacy value; see getLegacyParameterBlock().
   set("power_match", DtBlkFxLegacy::legacyValueIsPowerMatch(legacy[0]) ? 1.0f : 0.0f);
   set("mixback", DtBlkFxLegacy::legacyValueToMixBack(legacy[0]));
