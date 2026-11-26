@@ -559,6 +559,19 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
     if (effect.type < 0 || effect.type > 19)
       continue;
 
+    // HarmRepitch from 0.7 up follows the right channel. Read the left and right fundamentals
+    // before either channel changes; in mono both come from the one channel.
+    std::array<float, 2> followFundamentals{};
+    if (effect.type == 12 && effect.value >= 0.7f) {
+      for (int side = 0; side < 2; ++side) {
+        const auto& spectrum =
+            channelStates[static_cast<size_t>(std::min(side, channelCount - 1))].spectrum;
+        std::copy(spectrum.begin(), spectrum.end(), bins.begin());
+        followFundamentals[static_cast<size_t>(side)] =
+            findFundamentalBin(1, std::max(1, fftSize / 8));
+      }
+    }
+
     for (int channel = 0; channel < channelCount; ++channel) {
       auto& state = channelStates[static_cast<size_t>(channel)];
       std::copy(state.spectrum.begin(), state.spectrum.end(), bins.begin());
@@ -571,7 +584,7 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
       applyResample(effect, nextFrameStart);
       applyShift(effect, nextFrameStart);
       applyConstShift(effect, nextFrameStart);
-      applyHarmonicEffect(effect, nextFrameStart);
+      applyHarmonicEffect(effect, nextFrameStart, followFundamentals);
       applySweep(effect);
       std::copy(bins.begin(), bins.end(), state.spectrum.begin());
     }
@@ -2290,7 +2303,9 @@ void DtBlkFxEngine::applyWarpMix(const EffectParameters& effect, size_t frameSta
   for (auto& power : frameInputPowers)
     power += (mixedPower - power) * processedFraction;
 }
-void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t frameStart) noexcept
+void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect,
+                                        size_t frameStart,
+                                        const std::array<float, 2>& followFundamentals) noexcept
 {
   if (effect.type != 11 && effect.type != 12 && effect.type != 13 && effect.type != 14)
     return;
@@ -2309,10 +2324,15 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t f
   const auto harmonicType = std::min(static_cast<int>(splitValue), 3);
   const auto typeFraction = shape >= 1.0f ? 1.0f : splitValue - harmonicType;
 
+  const auto firstFrequencyBin = getFrequencyBin(effect.frequencyA);
+  const auto secondFrequencyBin = getFrequencyBin(effect.frequencyB);
+  const auto following = effect.type == 12 && value >= 0.7f;
   float fundamental = 0.0f;
   if (effect.type == 13) {
-    fundamental = static_cast<float>(
-        std::min(getFrequencyBin(effect.frequencyA), getFrequencyBin(effect.frequencyB)));
+    fundamental = static_cast<float>(std::min(firstFrequencyBin, secondFrequencyBin));
+  }
+  else if (following) {
+    fundamental = followFundamentals[0]; // both channels mask and shift from the left, as legacy
   }
   else {
     fundamental = findFundamentalBin(1, std::max(1, fftSize / 8));
@@ -2343,11 +2363,18 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t f
   const auto lowestBin = std::max(1, static_cast<int>(offset) - halfWidth);
   auto highestBin = std::min(maximumBin, static_cast<int>(spacing * 200.0f));
   if (effect.type == 13)
-    highestBin =
-        std::min(highestBin,
-                 std::max(getFrequencyBin(effect.frequencyA), getFrequencyBin(effect.frequencyB)));
+    highestBin = std::min(highestBin, std::max(firstFrequencyBin, secondFrequencyBin));
   if (lowestBin > highestBin)
     return;
+
+  // Frequency A/B limit which bins are affected (A above B: outside them). HarmFilt uses them
+  // for its fundamental and upper end instead.
+  const auto isSelected = [&](int bin) {
+    const auto inRange = firstFrequencyBin <= secondFrequencyBin
+                             ? bin >= firstFrequencyBin && bin <= secondFrequencyBin
+                             : bin <= secondFrequencyBin || bin >= firstFrequencyBin;
+    return isEffectBinSelected(bin) && (effect.type == 13 || inRange);
+  };
 
   const auto repitchMode = effect.type == 12 && value < 0.7f;
   const auto harmonicShift = effect.type == 11 || effect.type == 12;
@@ -2362,6 +2389,12 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t f
     const auto sourceFrequency = fundamental * sampleRate / fftSize;
     if (sourceFrequency > 0.0)
       frequencyMultiplier = static_cast<float>(targetFrequency / sourceFrequency);
+  }
+  else if (following) {
+    // 0.7..1 is -24..+24 notes from the right channel's fundamental.
+    const auto notes = (value - 0.7f) / 0.3f * 48.0f - 24.0f;
+    const auto ratio = followFundamentals[1] > 0.0f ? followFundamentals[1] / fundamental : 1.0f;
+    frequencyMultiplier = ratio * std::pow(2.0f, notes / 12.0f);
   }
   if (!std::isfinite(frequencyMultiplier) || frequencyMultiplier <= 0.0f)
     return;
@@ -2383,7 +2416,7 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t f
     nextUnused = end + 1;
 
     for (auto sourceBin = start; sourceBin <= end; ++sourceBin) {
-      if (isEffectBinSelected(sourceBin))
+      if (isSelected(sourceBin))
         selectionMask[static_cast<size_t>(sourceBin)] = 1;
     }
 
@@ -2395,7 +2428,7 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t f
     const auto shift = repitchMode ? binShift : center * (multiplier - 1.0f);
     const auto framePhase = static_cast<double>(frameStart % static_cast<size_t>(fftSize));
     for (auto sourceBin = start; sourceBin <= end; ++sourceBin) {
-      if (!isEffectBinSelected(sourceBin))
+      if (!isSelected(sourceBin))
         continue;
       const auto destination = static_cast<float>(sourceBin) + shift;
       if (destination < 0.0f || destination > static_cast<float>(maximumBin))

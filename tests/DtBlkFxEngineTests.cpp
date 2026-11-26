@@ -329,6 +329,72 @@ bool testHarmonicShiftMovesTheFundamental()
   return passed;
 }
 
+// Runs one effect on tones at bins 16 (left) and 24 (right) of a 4096 frame and returns the left
+// level at a frequency. Whole bins keep the shifted tones clean enough to measure.
+constexpr double leftTone = 187.5;
+constexpr double rightTone = 281.25;
+
+double leftLevelAfter(const DtBlkFxEngine::EffectParameters& effect, double frequency)
+{
+  DtBlkFxEngine engine;
+  if (!engine.prepare(16, 48000.0))
+    return -1.0;
+  std::array<DtBlkFxEngine::EffectParameters, 8> effects{};
+  effects[0] = effect;
+  engine.configureEffects(effects, 0.0f, false);
+
+  std::vector<float> left(48000), right(48000);
+  for (size_t i = 0; i < left.size(); ++i) {
+    left[i] = 0.5f * std::sin(6.28318531f * static_cast<float>(leftTone) * static_cast<float>(i) /
+                              48000.0f);
+    right[i] = 0.5f * std::sin(6.28318531f * static_cast<float>(rightTone) * static_cast<float>(i) /
+                               48000.0f);
+  }
+  std::array<float*, 2> channels{left.data(), right.data()};
+  if (!engine.process(channels.data(), 2, static_cast<int>(left.size())))
+    return -1.0;
+
+  double real = 0.0, imaginary = 0.0;
+  for (size_t i = 24000; i < left.size(); ++i) {
+    const auto phase = 6.283185307179586 * frequency * static_cast<double>(i) / 48000.0;
+    real += left[i] * std::cos(phase);
+    imaginary += left[i] * std::sin(phase);
+  }
+  return std::hypot(real, imaginary) / 12000.0; // 0.5 for an untouched tone
+}
+
+bool testHarmRepitchFollowsRightChannel()
+{
+  // 0.85 is the right channel's note, 0.925 one octave above it.
+  return check(leftLevelAfter({12, 0.0f, 1.0f, 0.6f, 0.85f}, rightTone) > 0.25,
+               4096,
+               "HarmRepitch did not follow the right channel") &&
+         check(leftLevelAfter({12, 0.0f, 1.0f, 0.6f, 0.925f}, 2.0 * rightTone) > 0.25,
+               4096,
+               "HarmRepitch note offset from the right channel is wrong");
+}
+
+bool testHarmonicEffectsRespectFrequencyRange()
+{
+  // HarmShift, HarmRepitch and AutoHarm (zero gain). 0.56 is about 1 kHz.
+  const std::array<DtBlkFxEngine::EffectParameters, 3> effects{{{11, 0.56f, 1.0f, 0.6f, 0.6667f},
+                                                                {12, 0.56f, 1.0f, 0.6f, 0.5647f},
+                                                                {14, 0.56f, 1.0f, 0.0f, 0.2499f}}};
+  bool passed = true;
+  for (auto effect : effects) {
+    passed &= check(leftLevelAfter(effect, leftTone) > 0.45,
+                    4096,
+                    "harmonic effect changed a tone outside Frequency A..B");
+    // A above B: everything outside the two, so the left tone is affected again.
+    effect.frequencyB = 0.56f;
+    effect.frequencyA = 0.7f;
+    passed &= check(leftLevelAfter(effect, leftTone) < 0.1,
+                    4096,
+                    "harmonic effect ignored an inverted frequency range");
+  }
+  return passed;
+}
+
 bool testBeatSynchronizedHop()
 {
   DtBlkFxEngine engine;
@@ -1279,6 +1345,8 @@ int main()
   passed &= testScheduler(16, 0.175f, 0); // default Overlap
   passed &= testScheduler(16, 0.825f, 0); // default Overlap with block sync
   passed &= testHarmonicShiftMovesTheFundamental();
+  passed &= testHarmRepitchFollowsRightChannel();
+  passed &= testHarmonicEffectsRespectFrequencyRange();
   passed &= testSchedulerReset();
   passed &= testBeatSynchronizedHop();
   passed &= testSchedulerFftSizeTransition();

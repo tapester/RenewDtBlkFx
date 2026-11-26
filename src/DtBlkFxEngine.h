@@ -156,7 +156,9 @@ private:
   void applyResample(const EffectParameters& effect, size_t frameStart) noexcept;
   void applyShift(const EffectParameters& effect, size_t frameStart) noexcept;
   void applyConstShift(const EffectParameters& effect, size_t frameStart) noexcept;
-  void applyHarmonicEffect(const EffectParameters& effect, size_t frameStart) noexcept;
+  void applyHarmonicEffect(const EffectParameters& effect,
+                           size_t frameStart,
+                           const std::array<float, 2>& followFundamentals) noexcept;
   void applySweep(const EffectParameters& effect) noexcept;
   void applyStereoEffect(const EffectParameters& effect,
                          int channelCount,
