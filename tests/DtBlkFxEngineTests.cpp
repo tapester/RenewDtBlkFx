@@ -189,11 +189,13 @@ bool testScheduler(int fftSizeIndex, float overlapParameter, int delaySamples)
   const auto sampleCount = fftSize * 3 + 37;
   const auto latency = wholeBlockEngine.getLatencySamples() + delaySamples;
   const auto windowSize = wholeBlockEngine.getTimeWindowSamples();
+  const auto overlapPart =
+      overlapParameter > 0.5f ? 2.0f - overlapParameter * 2.0f : overlapParameter * 2.0f;
   const auto expectedHop = std::max(
       32,
       static_cast<int>(std::floor(static_cast<float>(windowSize - 16) +
-                                  overlapParameter * (static_cast<float>(windowSize) * 0.15f -
-                                                     static_cast<float>(windowSize - 16)))));
+                                  overlapPart * (static_cast<float>(windowSize) * 0.15f -
+                                                 static_cast<float>(windowSize - 16)))));
   std::array<std::vector<float>, 2> wholeInput;
   std::array<std::vector<float>, 2> chunkedInput;
   std::array<std::vector<float>, 2> wholeOutput;
@@ -289,13 +291,51 @@ bool testSchedulerReset()
   return true;
 }
 
+// A 220 Hz tone moved up must leave 220 Hz: Value sets the pitch, not which harmonics are picked.
+bool testHarmonicShiftMovesTheFundamental()
+{
+  bool passed = true;
+  // HarmShift +12 notes (440 Hz); HarmRepitch to note 72 (C6, 1047 Hz).
+  const std::array<std::array<float, 3>, 2> cases{
+      {{11.0f, 0.5f + 12.0f / 72.0f, 440.0f}, {12.0f, 72.0f / 127.5f, 1046.5f}}};
+  for (const auto& test : cases) {
+    DtBlkFxEngine engine;
+    if (!engine.prepare(16, 48000.0))
+      return false;
+    std::array<DtBlkFxEngine::EffectParameters, 8> effects{};
+    effects[0] = {static_cast<int>(test[0]), 0.0f, 1.0f, 0.6f, test[1]};
+    engine.configureEffects(effects, 0.0f, false);
+
+    std::vector<float> audio(48000);
+    for (size_t i = 0; i < audio.size(); ++i)
+      audio[i] = 0.5f * std::sin(6.28318531f * 220.0f * static_cast<float>(i) / 48000.0f);
+    float* channel = audio.data();
+    if (!engine.process(&channel, 1, static_cast<int>(audio.size())))
+      return false;
+
+    const auto level = [&audio](double frequency) {
+      double real = 0.0, imaginary = 0.0;
+      for (size_t i = 24000; i < audio.size(); ++i) {
+        const auto phase = 6.283185307179586 * frequency * static_cast<double>(i) / 48000.0;
+        real += audio[i] * std::cos(phase);
+        imaginary += audio[i] * std::sin(phase);
+      }
+      return std::hypot(real, imaginary);
+    };
+    passed &= check(level(test[2]) > 4.0 * level(220.0),
+                    engine.getFftSize(),
+                    "harmonic shift did not move the fundamental");
+  }
+  return passed;
+}
+
 bool testBeatSynchronizedHop()
 {
   DtBlkFxEngine engine;
   if (!engine.prepare(8))
     return false;
 
-  constexpr float overlapParameter = 0.8f;
+  constexpr float overlapParameter = 0.6f; // block sync, overlap part 0.8
   engine.configureScheduler(overlapParameter, 0, 287.5, 200.0);
   const auto nominalHop = engine.getHopSize();
   if (nominalHop != 324 || engine.getNextHopSize() != 87) {
@@ -1236,6 +1276,9 @@ int main()
   passed &= testScheduler(0, 0.0f, 0);
   passed &= testScheduler(8, 0.72f, 37);
   passed &= testScheduler(0, 1.0f, 0);
+  passed &= testScheduler(16, 0.175f, 0); // default Overlap
+  passed &= testScheduler(16, 0.825f, 0); // default Overlap with block sync
+  passed &= testHarmonicShiftMovesTheFundamental();
   passed &= testSchedulerReset();
   passed &= testBeatSynchronizedHop();
   passed &= testSchedulerFftSizeTransition();
