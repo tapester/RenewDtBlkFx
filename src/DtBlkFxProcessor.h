@@ -46,7 +46,7 @@ public:
   static int latencySamplesForChoice(int choiceIndex);
   LegacyParameterBlock getLegacyParameterBlock() const;
   // Inverse of getLegacyParameterBlock(): sets the host-facing parameters from a legacy block,
-  // e.g. a program of the legacy plug-in.
+  // e.g. a program of the legacy plug-in. Also sets Latency so that the program's Block Size fits.
   void setLegacyParameterBlock(const LegacyParameterBlock&);
 
   void prepareToPlay(double sampleRate, int samplesPerBlock) override;

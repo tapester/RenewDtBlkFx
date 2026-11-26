@@ -20,6 +20,7 @@
 // JUCE-linked state and parameter tests: saving and loading, damaged state, parameter
 // resolution and automation through the real processor.
 
+#include "DtBlkFxEngine.h"
 #include "DtBlkFxFactoryPresets.h"
 #include "DtBlkFxLegacyMapping.h"
 #include "DtBlkFxProcessor.h"
@@ -418,6 +419,27 @@ void testFactoryPresets()
 
   const auto presets = DtBlkFxFactory::parsePresets(DtBlkFxFactory::presetText());
   check(presets.size() == 40, "expected 40 factory presets, got " + std::to_string(presets.size()));
+
+  // The latency follows the program's Block Size, and drops back to the default afterwards.
+  Processor shared;
+  const auto latencyAfter = [&shared](float fftLength) {
+    Processor::LegacyParameterBlock block{};
+    block[2] = fftLength;
+    shared.setLegacyParameterBlock(block);
+    const auto choice = shared.parameters.getRawParameterValue("latency")->load();
+    return Processor::latencySamplesForChoice(juce::roundToInt(choice));
+  };
+  check(latencyAfter(1.0f) == 80639, "the largest Block Size needs the largest latency");
+  check(latencyAfter(0.282353f) == 4095, "a 4096 program must use the default latency");
+  check(latencyAfter(0.0f) == 4095, "a small program must not go below the default latency");
+
+  for (const auto& preset : presets) {
+    const auto size = DtBlkFxEngine::fftSizeAt(
+        std::clamp(DtBlkFxLegacy::legacyValueToFftPlanIndex(preset.values[2]),
+                   0,
+                   DtBlkFxEngine::fftSizeCount - 1));
+    check(latencyAfter(preset.values[2]) >= size - 1, preset.name + ": Block Size does not fit");
+  }
 
   // Applying a legacy program and reading the engine block back must give the same program.
   for (const auto& preset : presets) {
