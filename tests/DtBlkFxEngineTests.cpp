@@ -191,11 +191,11 @@ bool testScheduler(int fftSizeIndex, float overlapParameter, int delaySamples)
   const auto windowSize = wholeBlockEngine.getTimeWindowSamples();
   const auto overlapPart =
       overlapParameter > 0.5f ? 2.0f - overlapParameter * 2.0f : overlapParameter * 2.0f;
-  const auto expectedHop = std::max(
-      32,
-      static_cast<int>(std::floor(static_cast<float>(windowSize - 16) +
-                                  overlapPart * (static_cast<float>(windowSize) * 0.15f -
-                                                 static_cast<float>(windowSize - 16)))));
+  const auto expectedHop =
+      std::max(32,
+               static_cast<int>(std::floor(static_cast<float>(windowSize - 16) +
+                                           overlapPart * (static_cast<float>(windowSize) * 0.15f -
+                                                          static_cast<float>(windowSize - 16)))));
   std::array<std::vector<float>, 2> wholeInput;
   std::array<std::vector<float>, 2> chunkedInput;
   std::array<std::vector<float>, 2> wholeOutput;
