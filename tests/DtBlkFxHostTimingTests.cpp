@@ -314,7 +314,7 @@ int firstHopFor(double ppq)
   Tracker tracker;
   tracker.reset(48000.0);
   const auto timing = tracker.update(makeTransport(720.0, ppq, true), 512);
-  const auto params = makeParams(8, 0.75f, {9, 9, 9, 9, 9, 9, 9, 9});
+  const auto params = makeParams(8, 0.625f, {9, 9, 9, 9, 9, 9, 9, 9});
   if (!engine.configureLegacyParameters(params, timing.samplesPerBeat, timing.beatPhaseSamples, false))
     return -1;
   return engine.getNextHopSize();
@@ -322,7 +322,7 @@ int firstHopFor(double ppq)
 
 void testBlockSyncAlignmentReachesEngine()
 {
-  // Without sync the hop is 367 samples at overlap 0.75. A beat boundary 251..367 samples ahead
+  // Without sync the hop is 367 samples at overlap 0.625. A beat boundary 251..367 samples ahead
   // shortens the first hop to land on it.
   check(firstHopFor(10.0) == 367, "no beat boundary ahead: expected the normal hop of 367, got " +
                                       std::to_string(firstHopFor(10.0)));

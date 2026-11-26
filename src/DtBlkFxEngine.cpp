@@ -838,9 +838,11 @@ void DtBlkFxEngine::updateHopSize() noexcept
 {
   const auto minimumHop = static_cast<float>(timeWindowSamples) * 0.15f;
   const auto maximumHop = static_cast<float>(timeWindowSamples - 16);
-  hopSize = std::max(32,
-                     static_cast<int>(std::floor(maximumHop + legacyOverlapParameter *
-                                                                  (minimumHop - maximumHop))));
+  // Legacy getOverlapPart(): the upper half of the parameter is block sync, mirrored.
+  const auto overlapPart = legacyOverlapParameter > 0.5f ? 2.0f - legacyOverlapParameter * 2.0f
+                                                         : legacyOverlapParameter * 2.0f;
+  hopSize = std::max(
+      32, static_cast<int>(std::floor(maximumHop + overlapPart * (minimumHop - maximumHop))));
 }
 
 void DtBlkFxEngine::updateDelayTransition() noexcept
@@ -2301,9 +2303,11 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t f
   const auto sourceGain = std::clamp(1.0f - gain, 0.0f, 1.0f);
   const auto binCount = fftBinCount(fftSize);
   const auto maximumBin = binCount - 1;
-  const auto splitValue = value >= 1.0f ? 4.0f : value * 4.0f;
+  // HarmShift and HarmRepitch use Value for the pitch; like legacy, their mask shape is fixed.
+  const auto shape = effect.type == 11 || effect.type == 12 ? 0.2499f : value;
+  const auto splitValue = shape >= 1.0f ? 4.0f : shape * 4.0f;
   const auto harmonicType = std::min(static_cast<int>(splitValue), 3);
-  const auto typeFraction = value >= 1.0f ? 1.0f : splitValue - harmonicType;
+  const auto typeFraction = shape >= 1.0f ? 1.0f : splitValue - harmonicType;
 
   float fundamental = 0.0f;
   if (effect.type == 13) {
@@ -2368,13 +2372,15 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect, size_t f
 
   const auto firstHarmonic = static_cast<int>(std::floor((lowestBin - offset) / spacing));
   const auto lastHarmonic = static_cast<int>(std::ceil((highestBin - offset) / spacing));
+  auto nextUnused = lowestBin; // neighbouring windows may touch; shift each bin only once
   for (auto harmonic = firstHarmonic; harmonic <= lastHarmonic; ++harmonic) {
     const auto center = offset + spacing * static_cast<float>(harmonic);
     const auto roundedCenter = static_cast<int>(std::lround(center));
-    const auto start = std::max(lowestBin, roundedCenter - halfWidth);
+    const auto start = std::max(nextUnused, roundedCenter - halfWidth);
     const auto end = std::min(highestBin, roundedCenter + halfWidth);
     if (end < start)
       continue;
+    nextUnused = end + 1;
 
     for (auto sourceBin = start; sourceBin <= end; ++sourceBin) {
       if (isEffectBinSelected(sourceBin))
