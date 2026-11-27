@@ -20,22 +20,10 @@
 #pragma once
 
 #include <algorithm>
-#include <string>
 
 // Conversions between host-facing parameter values and the engine's legacy 44-float block.
 // Header-only and free of JUCE so the engine test executable can use it.
 namespace DtBlkFxLegacy {
-
-// Some readouts put words first ("below 40%", "copy0/50%"), so the typed number is the last one.
-inline std::string lastTypedNumber(const std::string& text)
-{
-  const auto last = text.find_last_of("0123456789");
-  if (last == std::string::npos)
-    return {};
-  const auto before = text.find_last_not_of("0123456789.,+-", last);
-  const auto start = before == std::string::npos ? 0 : before + 1;
-  return text.substr(start, last + 1 - start);
-}
 
 // Number of selectable effect types (indices 0..30).
 constexpr int effectTypeCount = 31;
