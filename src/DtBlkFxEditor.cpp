@@ -567,8 +567,10 @@ void DtBlkFxAudioProcessorEditor::refreshPresets(const juce::File& select)
   for (int i = 0; i < userPresets.size(); ++i)
     presetDropdown.addItem(userPresets[i].getFileNameWithoutExtension(), i + firstUserId());
   const auto selectedIndex = userPresets.indexOf(select);
-  presetDropdown.setSelectedId(selectedIndex < 0 ? 1 : selectedIndex + firstUserId(),
-                               juce::dontSendNotification);
+  // Otherwise select nothing: the current sound is not known to be any preset, and a selected
+  // "Default" could not be picked.
+  if (selectedIndex >= 0)
+    presetDropdown.setSelectedId(selectedIndex + firstUserId(), juce::dontSendNotification);
 }
 
 void DtBlkFxAudioProcessorEditor::loadPreset(int itemId)
