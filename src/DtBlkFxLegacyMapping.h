@@ -50,20 +50,6 @@ inline int legacyValueToFftPlanIndex(float value) noexcept
   return static_cast<int>(value * 255.0f / 4.0f - 1.5f);
 }
 
-// Delay (parameter 1) below 0.5 is in beats; 0.5 and above is in milliseconds.
-constexpr float delayBeatsAtHalf = 0.5f * 255.0f / 16.0f;
-
-inline float legacyValueToDelayBeats(float value) noexcept
-{
-  return value * 2.0f * delayBeatsAtHalf;
-}
-
-// Stops below 0.5 even after snapping to the parameter step, or a long delay would become 0 ms.
-inline float delayBeatsToLegacyValue(float beats) noexcept
-{
-  return std::clamp(beats / (2.0f * delayBeatsAtHalf), 0.0f, 0.4999f);
-}
-
 // Mix Back (parameter 0). Values up to 0.5 mean Power Match mode (mix 0..1); above 0.5 mean
 // Filter mode (mix 1..0). Encoder and decoders live together so they cannot drift apart.
 inline float mixBackToLegacyValue(float mixBack, bool powerMatch) noexcept
@@ -79,6 +65,20 @@ inline bool legacyValueIsPowerMatch(float value) noexcept
 inline float legacyValueToMixBack(float value) noexcept
 {
   return legacyValueIsPowerMatch(value) ? value * 2.0f : (1.0f - value) * (1.0f / 0.499f);
+}
+
+// Delay (parameter 1) below 0.5 is in beats; 0.5 and above is in milliseconds.
+constexpr float delayBeatsAtHalf = 0.5f * 255.0f / 16.0f;
+
+inline float legacyValueToDelayBeats(float value) noexcept
+{
+  return value * 2.0f * delayBeatsAtHalf;
+}
+
+// Stops below 0.5 even after snapping to the parameter step, or a long delay would become 0 ms.
+inline float delayBeatsToLegacyValue(float beats) noexcept
+{
+  return std::clamp(beats / (2.0f * delayBeatsAtHalf), 0.0f, 0.4999f);
 }
 
 } // namespace DtBlkFxLegacy
