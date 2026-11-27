@@ -476,8 +476,10 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                          timing.samplesPerBeat,
                                          timing.beatPhaseSamples,
                                          isOn(handles.parameterSync))) {
-    juce::Logger::writeToLog("DtBlkFx: failed to queue legacy parameter snapshot");
+    // No logging here: it allocates and writes a file on the audio thread. An unprepared engine
+    // was already logged by prepareToPlay.
     buffer.clear();
+    jassert(!engine->isPrepared());
     return;
   }
 
