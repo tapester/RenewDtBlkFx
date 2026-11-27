@@ -20,6 +20,7 @@
 #include "DtBlkFxEditor.h"
 #include "DtBlkFxEngine.h"
 #include "DtBlkFxFactoryPresets.h"
+#include "DtBlkFxLegacyMapping.h"
 
 #include <algorithm>
 #include <cmath>
@@ -382,7 +383,8 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
   };
   globalSliders[1].textFromValueFunction = [](double value) {
     if (value < 0.5)
-      return juce::String(value * 31.875, 2) + " beats";
+      return juce::String(DtBlkFxLegacy::legacyValueToDelayBeats(static_cast<float>(value)), 2) +
+             " beats";
     return juce::String((value - 0.5) * 12.0, 3) + " sec";
   };
   globalSliders[1].valueFromTextFunction = [](const juce::String& text) {
@@ -391,7 +393,7 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
       return std::clamp(0.5 + value / 12.0, 0.5, 1.0);
     if (text.containsIgnoreCase("ms"))
       return std::clamp(0.5 + value / 12000.0, 0.5, 1.0);
-    return std::clamp(value / 31.875, 0.0, 0.5);
+    return static_cast<double>(DtBlkFxLegacy::delayBeatsToLegacyValue(static_cast<float>(value)));
   };
   globalSliders[2].textFromValueFunction = [this](double value) {
     const auto index = juce::jlimit(
