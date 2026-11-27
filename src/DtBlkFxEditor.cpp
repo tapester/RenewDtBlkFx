@@ -18,6 +18,8 @@
  */
 
 #include "DtBlkFxEditor.h"
+
+#include "BinaryData.h"
 #include "DtBlkFxEngine.h"
 #include "DtBlkFxFactoryPresets.h"
 #include "DtBlkFxValueText.h"
@@ -93,44 +95,196 @@ std::array<bool, 4> usedEffectControls(int type)
     return {false, false, false, true};
   return {true, true, true, true};
 }
+
+// The original's size, plus a bar above it for what the original did not have.
+constexpr int baseWidth = 410;
+constexpr int barHeight = 28;
+constexpr int globalHeight = 26;
+constexpr int splashHeight = 191;
+constexpr int rowHeight = 24;
+constexpr int rowsTop = barHeight + globalHeight + splashHeight;
+constexpr int baseHeight = rowsTop + 8 * rowHeight;
+constexpr int maxScale = 3;
+
+bool isMaskEffect(int type)
+{
+  return type >= 20 && type <= 25;
+}
+
+// White text with a black outline, pink on the control in use.
+void drawOutlined(juce::Graphics& graphics,
+                  const juce::Component& owner,
+                  const juce::String& text,
+                  juce::Rectangle<int> area)
+{
+  graphics.setFont(juce::Font(juce::FontOptions(12.5f, juce::Font::bold)));
+  const auto draw = [&](int dx, int dy) {
+    graphics.drawFittedText(
+        text, area.translated(dx, dy), juce::Justification::centred, 1, 0.6f);
+  };
+  graphics.setColour(juce::Colours::black);
+  for (int dx = -1; dx <= 1; ++dx)
+    for (int dy = -1; dy <= 1; ++dy)
+      if (dx != 0 || dy != 0)
+        draw(dx, dy);
+  const auto active =
+      owner.isEnabled() && (owner.isMouseOverOrDragging(true) || owner.hasKeyboardFocus(true));
+  graphics.setColour(active ? juce::Colour(0xffff8080) : juce::Colours::white);
+  draw(0, 0);
+}
 } // namespace
+
+namespace DtBlkFxUi {
+
+ValueCell::ValueCell()
+{
+  setSliderStyle(juce::Slider::RotaryHorizontalDrag);
+  setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+  // A drag across half of the original's width covers the whole range.
+  setMouseDragSensitivity(baseWidth / 2);
+  setRepaintsOnMouseActivity(true);
+
+  entry.setFont(juce::Font(juce::FontOptions(12.0f)));
+  entry.setJustificationType(juce::Justification::centred);
+  entry.setColour(juce::Label::backgroundWhenEditingColourId, juce::Colours::white);
+  entry.setColour(juce::Label::textWhenEditingColourId, juce::Colours::black);
+  entry.setColour(juce::TextEditor::highlightedTextColourId, juce::Colours::black);
+  entry.setColour(juce::Label::textColourId, juce::Colours::transparentBlack);
+  entry.onTextChange = [this] {
+    const juce::Slider::ScopedDragNotification gesture(*this);
+    setValue(getValueFromText(entry.getText()), juce::sendNotificationSync);
+  };
+  entry.onEditorHide = [this] { entry.setVisible(false); };
+  addChildComponent(entry);
+}
+
+void ValueCell::paint(juce::Graphics& graphics)
+{
+  drawOutlined(graphics,
+               *this,
+               isEnabled() ? getTextFromValue(getValue()) : juce::String("-"),
+               getLocalBounds().removeFromBottom(textHeight));
+}
+
+void ValueCell::resized()
+{
+  juce::Slider::resized();
+  entry.setBounds(getLocalBounds().removeFromBottom(textHeight));
+}
+
+// Not the base class: it resets to the default value, which would replace typing.
+void ValueCell::mouseDoubleClick(const juce::MouseEvent&)
+{
+  if (!isEnabled())
+    return;
+  entry.setText(getTextFromValue(getValue()), juce::dontSendNotification);
+  entry.setVisible(true);
+  entry.showEditor();
+}
+
+TypeCell::TypeCell()
+{
+  // The text is drawn by paint(), with its outline.
+  for (const auto id : {juce::ComboBox::textColourId,
+                        juce::ComboBox::backgroundColourId,
+                        juce::ComboBox::outlineColourId,
+                        juce::ComboBox::arrowColourId})
+    setColour(id, juce::Colours::transparentBlack);
+  setRepaintsOnMouseActivity(true);
+}
+
+void TypeCell::paint(juce::Graphics& graphics)
+{
+  drawOutlined(graphics, *this, getText(), getLocalBounds());
+}
+
+SwitchCell::SwitchCell(const juce::String& title, const juce::String& on, const juce::String& off)
+    : juce::Button(title)
+    , onText(on)
+    , offText(off)
+{
+  setTitle(title);
+  setClickingTogglesState(true);
+}
+
+void SwitchCell::paintButton(juce::Graphics& graphics, bool, bool)
+{
+  drawOutlined(graphics,
+               *this,
+               getToggleState() ? onText : offText,
+               getLocalBounds().removeFromBottom(15));
+}
+
+} // namespace DtBlkFxUi
 
 DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& processor)
     : AudioProcessorEditor(&processor)
     , processorRef(processor)
+    , globalImage(juce::ImageCache::getFromMemory(BinaryData::stereo_global_ctrl_png,
+                                                  BinaryData::stereo_global_ctrl_pngSize))
+    , splashImage(juce::ImageCache::getFromMemory(BinaryData::stereo_splash_png,
+                                                  BinaryData::stereo_splash_pngSize))
+    , rowImage(juce::ImageCache::getFromMemory(BinaryData::stereo_fx_bg_png,
+                                               BinaryData::stereo_fx_bg_pngSize))
 {
-  title.setText("Fast-Fourier-Transform spectral processing", juce::dontSendNotification);
-  title.setFont(juce::Font(20.0f, juce::Font::bold));
-  title.setJustificationType(juce::Justification::centredLeft);
-  addAndMakeVisible(title);
+  canvas.onPaint = [this](juce::Graphics& graphics) { paintCanvas(graphics); };
+  canvas.setSize(baseWidth, baseHeight);
+  canvas.addMouseListener(this, true);
+  addAndMakeVisible(canvas);
 
   presetDropdown.setTextWhenNothingSelected("Presets");
   presetDropdown.onChange = [this] { loadPreset(presetDropdown.getSelectedId()); };
   factoryPresets = DtBlkFxFactory::parsePresets(DtBlkFxFactory::presetText());
   refreshPresets();
-  addAndMakeVisible(presetDropdown);
+  presetDropdown.setBounds(4, 3, 130, 22);
+  canvas.addAndMakeVisible(presetDropdown);
 
   presetMenuButton.onClick = [this] { showPresetMenu(); };
-  addAndMakeVisible(presetMenuButton);
+  presetMenuButton.setBounds(136, 3, 24, 22);
+  canvas.addAndMakeVisible(presetMenuButton);
 
-  viewport.setViewedComponent(&content, false);
-  // The eight effect slots exceed the editor height, so the content scrolls vertically.
-  viewport.setScrollBarsShown(true, false);
-  addAndMakeVisible(viewport);
+  latency.addItemList(DtBlkFxAudioProcessor::latencyChoiceNames(), 1);
+  latency.setTitle("Latency (max block size)");
+  latency.setBounds(210, 3, 102, 22);
+  canvas.addAndMakeVisible(latency);
+  // The Block Size readout says when the latency limits it.
+  latency.onChange = [this] { globalSliders[2].repaint(); };
+  latencyAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+      processorRef.parameters, "latency", latency);
 
-  globalGroup.setText("Global");
-  content.addAndMakeVisible(globalGroup);
+  parameterSync.setTitle("Parameter Sync");
+  parameterSync.setBounds(314, 3, 94, 22);
+  canvas.addAndMakeVisible(parameterSync);
+
+  // The cells of the original's global strip, left to right.
+  const std::array<juce::Component*, 6> globalCells{&globalSliders[0],
+                                                    &powerMode,
+                                                    &globalSliders[1],
+                                                    &globalSliders[3],
+                                                    &blockSync,
+                                                    &globalSliders[2]};
+  for (size_t i = 0; i < globalCells.size(); ++i) {
+    globalCells[i]->setBounds(static_cast<int>(i) * 68, barHeight, 68, globalHeight);
+    canvas.addAndMakeVisible(globalCells[i]);
+  }
+
+  const std::array<juce::String, 3> buttonIDs{"power_match", "block_sync", "parameter_sync"};
+  const std::array<juce::Button*, 3> buttons{&powerMode, &blockSync, &parameterSync};
+  for (size_t i = 0; i < buttons.size(); ++i)
+    buttonAttachments[i] =
+        std::make_unique<ButtonAttachment>(processorRef.parameters, buttonIDs[i], *buttons[i]);
 
   const std::array<juce::String, 4> globalNames{"Mix Back", "Delay", "Block Size", "Overlap"};
   const std::array<juce::String, 4> globalIDs{"mixback", "delay", "fft_len", "overlap"};
   for (size_t i = 0; i < globalSliders.size(); ++i) {
-    configureSlider(globalSliders[i], globalLabels[i], globalNames[i]);
-    content.addAndMakeVisible(globalLabels[i]);
-    content.addAndMakeVisible(globalSliders[i]);
+    globalSliders[i].setTitle(globalNames[i]);
+    globalSliders[i].textHeight = 15; // below the label in the picture
+    globalSliders[i].resized();
     globalSliderAttachments[i] =
         std::make_unique<SliderAttachment>(processorRef.parameters, globalIDs[i], globalSliders[i]);
   }
 
+  // Set after the attachments, which install their own text functions.
   const auto sampleRate = [this] {
     return processorRef.getSampleRate() > 0.0 ? processorRef.getSampleRate() : 44100.0;
   };
@@ -146,8 +300,11 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
   globalSliders[1].valueFromTextFunction = [](const juce::String& text) {
     return DtBlkFxText::parseDelay(text.toStdString());
   };
-  globalSliders[2].textFromValueFunction = [sampleRate](double value) {
-    return juce::String(DtBlkFxText::formatBlockSize(value, sampleRate()));
+  globalSliders[2].textFromValueFunction = [this, sampleRate](double value) {
+    const auto limit =
+        DtBlkFxAudioProcessor::latencySamplesForChoice(latency.getSelectedItemIndex()) + 1;
+    return juce::String(DtBlkFxText::formatBlockSize(value, sampleRate())) +
+           (DtBlkFxText::blockSizeSamples(value) > limit ? " *" : "");
   };
   globalSliders[2].valueFromTextFunction = [sampleRate](const juce::String& text) {
     return DtBlkFxText::parseBlockSize(text.toStdString(), sampleRate());
@@ -158,42 +315,15 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
   globalSliders[3].valueFromTextFunction = [this](const juce::String& text) {
     return DtBlkFxText::parseOverlap(text.toStdString(), globalSliders[2].getValue());
   };
-  globalSliders[2].onValueChange = [this] { globalSliders[3].updateText(); };
+  globalSliders[2].onValueChange = [this] { globalSliders[3].repaint(); };
 
-  powerModeLabel.setText("Power", juce::dontSendNotification);
-  powerModeLabel.setJustificationType(juce::Justification::centredRight);
-  content.addAndMakeVisible(powerModeLabel);
-  powerMode.addItem("Match", 1);
-  powerMode.addItem("Filter", 2);
-  content.addAndMakeVisible(powerMode);
-  powerModeAttachment = std::make_unique<ParameterAttachment>(
-      *processorRef.parameters.getParameter("power_match"), [this](float value) {
-        const auto match = value >= 0.5f;
-        powerMode.setSelectedId(match ? 1 : 2, juce::dontSendNotification);
-        globalLabels[0].setText(match ? "Mix Back (Match)" : "Mix Back (Filter)",
-                                juce::dontSendNotification);
-      });
-  powerMode.onChange = [this] {
-    if (powerMode.getSelectedId() != 0)
-      powerModeAttachment->setValueAsCompleteGesture(powerMode.getSelectedId() == 1 ? 1.0f : 0.0f);
-  };
-  powerModeAttachment->sendInitialUpdate();
-
-  const std::array<juce::String, 2> toggleNames{"Block Sync", "Parameter Sync"};
-  const std::array<juce::String, 2> toggleIDs{"block_sync", "parameter_sync"};
-  for (size_t i = 0; i < globalToggles.size(); ++i) {
-    globalToggles[i].setButtonText(toggleNames[i]);
-    content.addAndMakeVisible(globalToggles[i]);
-    globalButtonAttachments[i] =
-        std::make_unique<ButtonAttachment>(processorRef.parameters, toggleIDs[i], globalToggles[i]);
-  }
-
-  const std::array<juce::String, 4> effectControlNames{
-      "Frequency A", "Frequency B", "Amplitude", "Value"};
+  // Column edges of an effect row: frequency A and B, amplitude, type, value.
+  constexpr std::array<int, 6> columns{0, 82, 164, 213, 311, baseWidth};
   const std::array<juce::String, 4> effectControlIDs{"freq_a", "freq_b", "amp", "value"};
-  for (size_t slot = 0; slot < effectGroups.size(); ++slot) {
-    effectGroups[slot].setText("Effect Slot " + juce::String(static_cast<int>(slot + 1)));
-    content.addAndMakeVisible(effectGroups[slot]);
+  constexpr std::array<size_t, 4> effectControlColumns{0, 1, 2, 4};
+  for (size_t slot = 0; slot < effectTypes.size(); ++slot) {
+    const auto y = rowsTop + static_cast<int>(slot) * rowHeight;
+    const auto slotName = "Slot " + juce::String(static_cast<int>(slot + 1)) + " ";
 
     const auto& effectNames = DtBlkFxAudioProcessor::effectTypeNames();
     effectTypes[slot].addItem(effectNames[9], 10);
@@ -201,7 +331,23 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
       effectTypes[slot].addItem(effectNames[type], type + 1);
     for (int type = 11; type < effectNames.size(); ++type)
       effectTypes[slot].addItem(effectNames[type], type + 1);
-    content.addAndMakeVisible(effectTypes[slot]);
+    effectTypes[slot].setTitle(slotName + "Effect");
+    effectTypes[slot].setBounds(columns[3], y, columns[4] - columns[3], rowHeight);
+
+    for (size_t control = 0; control < effectSliders[slot].size(); ++control) {
+      auto& slider = effectSliders[slot][control];
+      const auto column = effectControlColumns[control];
+      slider.setBounds(columns[column], y, columns[column + 1] - columns[column], rowHeight);
+      // The row picture shows the values, so it follows them.
+      slider.onValueChange = [this] { canvas.repaint(); };
+      canvas.addAndMakeVisible(slider);
+      effectSliderAttachments[slot][control] = std::make_unique<SliderAttachment>(
+          processorRef.parameters,
+          DtBlkFxAudioProcessor::fxParameterID(static_cast<int>(slot), effectControlIDs[control]),
+          slider);
+    }
+    canvas.addAndMakeVisible(effectTypes[slot]);
+
     const auto typeParameterID =
         DtBlkFxAudioProcessor::fxParameterID(static_cast<int>(slot), "type");
     effectTypeAttachments[slot] = std::make_unique<ParameterAttachment>(
@@ -212,18 +358,6 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
           effectTypes[slot].setSelectedId(type + 1, juce::dontSendNotification);
           updateEffectControls(slot);
         });
-
-    for (size_t control = 0; control < effectSliders[slot].size(); ++control) {
-      configureSlider(
-          effectSliders[slot][control], effectLabels[slot][control], effectControlNames[control]);
-      content.addAndMakeVisible(effectLabels[slot][control]);
-      content.addAndMakeVisible(effectSliders[slot][control]);
-      effectSliderAttachments[slot][control] = std::make_unique<SliderAttachment>(
-          processorRef.parameters,
-          DtBlkFxAudioProcessor::fxParameterID(static_cast<int>(slot), effectControlIDs[control]),
-          effectSliders[slot][control]);
-    }
-
     effectTypes[slot].onChange = [this, slot] {
       const auto selectedID = effectTypes[slot].getSelectedId();
       if (selectedID != 0)
@@ -231,16 +365,16 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
     };
     effectTypeAttachments[slot]->sendInitialUpdate();
   }
-  // Minimum size keeps the 600 px content column and the Global section fully visible; the
-  // default maximum (50000) leaves the window free to grow.
-  setResizable(true, true);
-  setResizeLimits(700, 500, 2400, 1800);
-  setSize(1100, 780);
-}
 
-DtBlkFxAudioProcessorEditor::~DtBlkFxAudioProcessorEditor()
-{
-  viewport.setViewedComponent(nullptr, false);
+  // Read before setting the limits, which already resizes. The shape is fixed.
+  const int width = juce::jlimit(
+      baseWidth,
+      baseWidth * maxScale,
+      static_cast<int>(processorRef.parameters.state.getProperty("editorWidth", baseWidth * 3 / 2)));
+  setResizable(true, true);
+  setResizeLimits(baseWidth, baseHeight, baseWidth * maxScale, baseHeight * maxScale);
+  getConstrainer()->setFixedAspectRatio(static_cast<double>(baseWidth) / baseHeight);
+  setSize(width, juce::roundToInt(width * static_cast<double>(baseHeight) / baseWidth));
 }
 
 namespace {
@@ -304,6 +438,8 @@ void DtBlkFxAudioProcessorEditor::loadPreset(int itemId)
     juce::MemoryBlock block;
     juce::AudioProcessor::copyXmlToBinary(*xml, block);
     processorRef.setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+    // A preset sets the sound, not the window size.
+    processorRef.parameters.state.setProperty("editorWidth", getWidth(), nullptr);
   }
 }
 
@@ -447,32 +583,20 @@ void DtBlkFxAudioProcessorEditor::exportPreset()
       });
 }
 
-void DtBlkFxAudioProcessorEditor::configureSlider(juce::Slider& slider,
-                                                  juce::Label& label,
-                                                  const juce::String& text)
-{
-  label.setText(text, juce::dontSendNotification);
-  label.setJustificationType(juce::Justification::centred);
-  slider.setSliderStyle(juce::Slider::LinearHorizontal);
-  slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 72, 20);
-}
-
 void DtBlkFxAudioProcessorEditor::updateEffectControls(size_t slot)
 {
   const auto type = effectTypes[slot].getSelectedId() - 1;
   const auto used = usedEffectControls(type);
-  const std::array<juce::String, 4> labels{"Frequency A (Hz)",
-                                           "Frequency B (Hz)",
-                                           DtBlkFxText::effectUsesMixAmplitude(type) ? "Mix / Gain"
-                                                                                     : "Gain",
-                                           effectValueLabel(type)};
+  const std::array<juce::String, 4> names{"Frequency A (Hz)",
+                                          "Frequency B (Hz)",
+                                          DtBlkFxText::effectUsesMixAmplitude(type) ? "Mix / Gain"
+                                                                                    : "Gain",
+                                          effectValueLabel(type)};
+  const auto slotName = "Slot " + juce::String(static_cast<int>(slot + 1)) + " ";
 
   for (size_t control = 0; control < effectSliders[slot].size(); ++control) {
-    effectLabels[slot][control].setText(used[control] ? labels[control]
-                                                      : labels[control] + " (unused)",
-                                        juce::dontSendNotification);
-    effectLabels[slot][control].setEnabled(used[control]);
     effectSliders[slot][control].setEnabled(used[control]);
+    effectSliders[slot][control].setTitle(slotName + names[control]);
     auto& slider = effectSliders[slot][control];
     if (control < 2) {
       slider.textFromValueFunction = [](double value) {
@@ -498,69 +622,99 @@ void DtBlkFxAudioProcessorEditor::updateEffectControls(size_t slot)
         return DtBlkFxText::parseEffectValue(type, text.toStdString());
       };
     }
-    slider.updateText();
   }
+  canvas.repaint();
 }
 
-void DtBlkFxAudioProcessorEditor::paint(juce::Graphics& graphics)
+void DtBlkFxAudioProcessorEditor::paintCanvas(juce::Graphics& graphics)
 {
   graphics.fillAll(juce::Colour(0xff17191d));
-  graphics.setColour(juce::Colour(0xffe6e8eb));
-  graphics.setFont(juce::Font(20.0f, juce::Font::bold));
-  graphics.drawText("DtBlkFx", 16, 5, 120, 36, juce::Justification::centredLeft);
+  graphics.setColour(juce::Colours::white);
+  graphics.setFont(juce::Font(juce::FontOptions(12.0f)));
+  graphics.drawText("Latency", 162, 0, 46, barHeight, juce::Justification::centredRight);
+  graphics.drawImageAt(globalImage, 0, barHeight);
+  graphics.drawImageAt(splashImage, 0, barHeight + globalHeight);
+  for (size_t slot = 0; slot < effectTypes.size(); ++slot)
+    paintEffectRow(graphics, slot);
+}
+
+// The row picture holds five strips: plain, row under the mouse, control under the mouse,
+// the amplitude ramp and the frequency scale.
+void DtBlkFxAudioProcessorEditor::paintEffectRow(juce::Graphics& graphics, size_t slot)
+{
+  const auto y = rowsTop + static_cast<int>(slot) * rowHeight;
+  const auto typeOf = [this](size_t index) { return effectTypes[index].getSelectedId() - 1; };
+  const auto type = typeOf(slot);
+  const auto used = usedEffectControls(type);
+  const auto& controls = effectSliders[slot];
+
+  const auto strip = [&](int index, int left, int right, float opacity) {
+    if (right <= left)
+      return;
+    graphics.setOpacity(opacity);
+    graphics.drawImage(rowImage,
+                       left,
+                       y,
+                       right - left,
+                       rowHeight,
+                       left,
+                       index * rowHeight,
+                       right - left,
+                       rowHeight);
+  };
+
+  // A mask effect limits the next one; with no effect to limit it does nothing.
+  const auto mask = isMaskEffect(type) && slot + 1 < effectTypes.size() &&
+                    !isMaskEffect(typeOf(slot + 1));
+
+  const juce::Component* hovered = nullptr;
+  if (!isMaskEffect(type) || mask) {
+    for (const auto& control : controls)
+      if (control.isMouseOverOrDragging(true))
+        hovered = &control;
+    if (effectTypes[slot].isMouseOverOrDragging(true))
+      hovered = &effectTypes[slot];
+  }
+
+  strip(hovered != nullptr ? 1 : 0, 0, baseWidth, 1.0f);
+  if (hovered != nullptr)
+    strip(2, hovered->getX(), hovered->getRight(), 1.0f);
+
+  // Join a mask row to the row below: copy the second last line over the separator.
+  if (mask) {
+    graphics.setOpacity(1.0f);
+    graphics.drawImage(
+        rowImage, 0, y + rowHeight - 1, baseWidth, 1, 0, rowHeight - 2, baseWidth, 1);
+  }
+
+  const auto position = [](double value) {
+    return juce::roundToInt(5.0 + value * (baseWidth - 10));
+  };
+
+  strip(3,
+        0,
+        position(controls[2].getValue()),
+        !used[2]                                 ? 0.25f
+        : controls[2].isMouseOverOrDragging(true) ? 1.0f
+                                                  : 0.5f);
+
+  // The range between the two frequencies, or outside them when A is above B.
+  const auto a = controls[0].getValue();
+  const auto b = controls[1].getValue();
+  const auto scaleOpacity = used[0] || used[1] ? 1.0f : 0.5f;
+  if (a <= b)
+    strip(4, position(a), position(b), scaleOpacity);
+  else {
+    strip(4, 0, position(b), scaleOpacity);
+    strip(4, position(a), baseWidth, scaleOpacity);
+  }
 }
 
 void DtBlkFxAudioProcessorEditor::resized()
 {
-  const int presetWidth = 200;
-  const int headerRightMargin = 16;
-  const int headerGap = 12;
-  const int menuButtonWidth = 36;
-  const int menuButtonGap = 6;
-  const int presetRight = getWidth() - headerRightMargin - menuButtonWidth - menuButtonGap;
-  title.setBounds(136, 5, juce::jmax(120, presetRight - presetWidth - headerGap - 136), 36);
-  presetDropdown.setBounds(presetRight - presetWidth, 9, presetWidth, 28);
-  presetMenuButton.setBounds(presetRight + menuButtonGap, 9, menuButtonWidth, 28);
-  viewport.setBounds(8, 44, getWidth() - 16, getHeight() - 52);
-
-  // Keep controls usable at narrow sizes; the viewport supplies scrolling for vertical overflow.
-  const int width = juce::jmax(600, viewport.getWidth() - 20);
-  const int margin = 12;
-  const int globalHeight = 166;
-  const int effectHeight = 142;
-  const int effectGap = 8;
-  const int contentHeight = margin + globalHeight + 10 +
-                            static_cast<int>(effectGroups.size()) * (effectHeight + effectGap);
-  content.setSize(width, contentHeight);
-  globalGroup.setBounds(margin, margin, width - margin * 2, globalHeight);
-
-  const int globalColumnWidth = (width - margin * 2 - 20) / 4;
-  for (size_t i = 0; i < globalSliders.size(); ++i) {
-    const int x = margin + 10 + static_cast<int>(i) * globalColumnWidth;
-    globalLabels[i].setBounds(x, margin + 28, globalColumnWidth - 8, 20);
-    globalSliders[i].setBounds(x, margin + 49, globalColumnWidth - 8, 76);
-  }
-  powerModeLabel.setBounds(margin + 12, margin + 128, 52, 24);
-  powerMode.setBounds(margin + 68, margin + 128, 116, 24);
-  globalToggles[0].setBounds(margin + 204, margin + 128, 180, 24);
-  globalToggles[1].setBounds(margin + 394, margin + 128, 180, 24);
-
-  const int effectWidth = width - margin * 2;
-  const int typeWidth = 190;
-  const int controlGap = 8;
-  const int controlWidth = (effectWidth - typeWidth - 24 - 4 * controlGap) / 4;
-  const int controlsY = margin + globalHeight + 10;
-
-  for (size_t slot = 0; slot < effectGroups.size(); ++slot) {
-    const int y = controlsY + static_cast<int>(slot) * (effectHeight + effectGap);
-    effectGroups[slot].setBounds(margin, y, effectWidth, effectHeight);
-    effectTypes[slot].setBounds(margin + 12, y + 48, typeWidth, 28);
-
-    for (size_t control = 0; control < effectSliders[slot].size(); ++control) {
-      const int x = margin + 12 + typeWidth + controlGap +
-                    static_cast<int>(control) * (controlWidth + controlGap);
-      effectLabels[slot][control].setBounds(x, y + 34, controlWidth, 20);
-      effectSliders[slot][control].setBounds(x, y + 56, controlWidth, 76);
-    }
-  }
+  canvas.setTransform(juce::AffineTransform::scale(
+      juce::jmin(static_cast<float>(getWidth()) / baseWidth,
+                 static_cast<float>(getHeight()) / baseHeight)));
+  // Saved with the project, so the window opens at the same size again.
+  processorRef.parameters.state.setProperty("editorWidth", getWidth(), nullptr);
 }

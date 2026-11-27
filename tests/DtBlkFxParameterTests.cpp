@@ -207,7 +207,10 @@ void checkTextRoundTrip(const std::string& name,
                         const std::function<double(const std::string&)>& parse)
 {
   // The mode words of a readout, and its numbers.
-  const auto words = [](const std::string& text) {
+  const auto words = [](std::string text) {
+    for (const auto* const unit : {"msec", "usec"}) // msec and sec are one mode
+      if (const auto at = text.find(unit); at != std::string::npos)
+        text.erase(at, 1);
     std::string result;
     for (const char c : text)
       if (std::isalpha(static_cast<unsigned char>(c)) && c != 'k') // Hz and kHz are one mode
@@ -279,6 +282,15 @@ void testKnobTextRoundTrip()
 
   check(parseEffectValue(12, "c#4:+25") > parseEffectValue(12, "c#4:+00"), "positive cents");
   check(parseFrequency("1,5 kHz") == parseFrequency("1 kHz"), "a comma ends the number");
+
+  // The original's number format.
+  check(shortNumber(242.2, 1.0) == "242", "242");
+  check(shortNumber(1514.0, 1.0) == "1.51k", "1.51k");
+  check(shortNumber(16.35, 1.0) == "16.4", "16.4");
+  check(shortNumber(3584.0 / 44100.0) == "81.3m", "81.3m");
+  check(shortNumber(1.5) == "1.50", "1.50");
+  check(formatBlockSize(parseBlockSize("81.3 ms", 44100.0), 44100.0) == "81.3msec", "typed ms");
+  check(formatDelay(parseDelay("20 ms")) == "20.0msec", "typed delay");
 }
 
 // Parameters that change before every block, down to one sample, at the largest FFT size.
