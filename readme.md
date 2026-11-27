@@ -196,20 +196,30 @@ not yet verified:
 
 The engine computes a whole FFT frame in one burst when the frame is
 complete, so CPU load arrives in spikes, not evenly. A spike grows with the
-Block Size and the effects used. Indicative longest times for one audio
-call with 8 effects, stereo, 48 kHz, measured on a 2-core cloud VM with a
-512-sample host buffer (10.7 ms available; your hardware will differ):
+Block Size and the effects used.
+
+Indicative longest times for one audio call, measured in November 2026 on a
+2-core cloud VM (Linux, GCC `-O3`, system FFTW; your hardware and the
+Windows and macOS builds will differ). Setup: engine only, stereo, 48 kHz,
+white noise plus a tone, default Overlap, and these 8 effects: Filter,
+Contrast, Smear, Threshold, Resample, Shift, ConstShift, WarpMix. Times
+varied between runs, so ranges are given.
 
 | Block Size | Longest call |
 |---|---|
-| 4096 | 3.5 ms (99% of calls under 1 ms) |
-| 16384 | 4 ms |
-| 80640 | 18 ms, over the 10.7 ms available |
+| 4096 | 1-2 ms (99% of calls under 1.5 ms) |
+| 16384 | 4-6 ms |
+| 80640 | 19-28 ms |
 
-With a 64-sample buffer (1.3 ms available), 80640 took up to 24 ms. At 80640 an empty slot costs about 3.4 ms. Resample and ConstShift add about
-11 ms each, Shift about 6 ms and WarpMix about 4 ms; the other effects add
-0-3 ms. If you hear dropouts, use a smaller Block Size, fewer heavy effects,
-or a larger host buffer.
+The times were about the same with 64- and 512-sample host buffers, but the
+time available is not: 1.3 ms and 10.7 ms. So 80640 does not fit either
+buffer, and a 64-sample buffer is already tight at 4096.
+
+At 80640 with all slots empty a call takes about 2 ms. One effect adds about
+6 ms for ConstShift, about 3 ms for Resample, Shift and WarpMix, about 2 ms
+for Contrast, Smear, Resize and HarmShift, and less for the others. If you
+hear dropouts, use a smaller Block Size, fewer heavy effects, or a larger
+host buffer.
 
 ## Remaining porting activities
 

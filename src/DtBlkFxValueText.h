@@ -203,6 +203,9 @@ inline std::string formatEffectValue(int type, double normalized)
       return fixed(hz, 1) + " Hz";
     }
     case 12:
+      // From 0.7 up HarmRepitch follows the right channel: -24..+24 notes. Float, as the engine.
+      if (static_cast<float>(normalized) >= 0.7f)
+        return "right " + fixed((normalized - 0.7) / 0.3 * 48.0 - 24.0, 2, true) + " notes";
       return formatNote(normalized * 127.5);
     case 13:
     case 14:
@@ -284,6 +287,10 @@ inline double parseEffectValue(int type, const std::string& text)
       return (low + high) * 0.5;
     }
     case 12: {
+      if (startsWith(text, "right")) {
+        const auto notes = typedNumber(lastTypedNumber(text));
+        return std::clamp(0.7 + (notes + 24.0) / 48.0 * 0.3, 0.7, 1.0);
+      }
       const auto lowered = lowerCase(text);
       static const std::array<const char*, 12> noteNames{
           "c-", "c#", "d-", "d#", "e-", "f-", "f#", "g-", "g#", "a-", "a#", "b-"};
@@ -295,9 +302,9 @@ inline double parseEffectValue(int type, const std::string& text)
         const auto colon = rest.find(':');
         const auto cents = colon == std::string::npos ? 0.0 : typedNumber(rest.substr(colon + 1));
         return std::clamp(
-            (octave * 12.0 + static_cast<double>(note) + cents / 100.0) / 127.5, 0.0, 1.0);
+            (octave * 12.0 + static_cast<double>(note) + cents / 100.0) / 127.5, 0.0, 0.6999);
       }
-      return std::clamp(value / 127.5, 0.0, 1.0);
+      return std::clamp(value / 127.5, 0.0, 0.6999);
     }
     case 13:
     case 14:
