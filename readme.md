@@ -163,6 +163,7 @@ interaction works; also test manually in a DAW.
   compensates for, and Block Size is limited to what fits into it. The
   configurable output Delay is added on top and is not reported to the host. Loading a factory
   preset sets Latency to fit its Block Size (at least 4096), so large presets add more delay.
+  Bypassed audio is delayed by the same amount, so it stays in time.
 - **Block-size independent:** The engine waits for a full FFT frame, so its
   output does not depend on the host's block size. The legacy VST2 plug-in
   could force partial frames at callback boundaries.

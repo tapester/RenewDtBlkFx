@@ -18,7 +18,7 @@ JUCE plug-in (VST3, CLAP) that keeps the legacy plug-in's **functionality**.
 | Path | Purpose |
 |---|---|
 | `src/DtBlkFxEngine.*` | DSP engine (FFTW3f). No JUCE dependency. |
-| `src/DtBlkFxLegacyMapping.h`, `src/DtBlkFxHostTiming.h` | Header-only helpers, JUCE-free so engine tests can use them |
+| `src/DtBlkFxLegacyMapping.h`, `src/DtBlkFxHostTiming.h`, `src/DtBlkFxBypassDelay.h` | Header-only helpers, JUCE-free so engine tests can use them |
 | `src/DtBlkFxProcessor.*`, `src/DtBlkFxEditor.*` | JUCE processor (APVTS, scheduler) and editor |
 | `src/DtBlkFxSweepTables.*` | Precomputed sweep envelope data; do not edit without asking |
 | `tests/*.cpp` | CTest executables; diagnostics (`FftSwitchDiagnostic`, `EffectComparison`, `EffectProbe`) are standalone and not run by CTest |

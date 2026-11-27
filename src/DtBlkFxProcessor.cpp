@@ -354,8 +354,9 @@ void DtBlkFxAudioProcessor::setLegacyParameterBlock(const LegacyParameterBlock& 
 
 void DtBlkFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-  juce::ignoreUnused(samplesPerBlock);
   currentSampleRate = sampleRate;
+  bypassDelay.prepare(
+      static_cast<size_t>(DtBlkFxEngine::maxFftSize + juce::jmax(samplesPerBlock, 65536)));
   beatTracker.reset(sampleRate);
 
   // FFT plans and buffers are prepared here so processBlock does not allocate them.
@@ -388,6 +389,7 @@ void DtBlkFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
 void DtBlkFxAudioProcessor::releaseResources()
 {
   engine->release();
+  bypassDelay.prepare(0);
   appliedLatencySamples = 0;
   setLatencySamples(0);
 }
@@ -435,6 +437,7 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
   const auto channelCount = juce::jmin(totalNumInputChannels, static_cast<int>(channels.size()));
   for (int channel = 0; channel < channelCount; ++channel)
     channels[static_cast<size_t>(channel)] = buffer.getWritePointer(channel);
+  bypassDelay.write(channels.data(), channelCount, buffer.getNumSamples());
 
   // The Latency parameter decides the fixed delay the host compensates for. Only a change of the
   // parameter touches the engine and tells the host; Block Size automation never does.
@@ -475,6 +478,21 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     buffer.clear();
     jassertfalse;
   }
+}
+
+void DtBlkFxAudioProcessor::processBlockBypassed(juce::AudioBuffer<float>& buffer,
+                                                 juce::MidiBuffer& midiMessages)
+{
+  // The engine keeps running, so switching bypass off does not replay old audio. Its output is
+  // then replaced with the input, delayed by the latency the host compensates for.
+  processBlock(buffer, midiMessages);
+
+  std::array<float*, 2> channels{};
+  const auto channelCount =
+      juce::jmin(getTotalNumInputChannels(), static_cast<int>(channels.size()));
+  for (int channel = 0; channel < channelCount; ++channel)
+    channels[static_cast<size_t>(channel)] = buffer.getWritePointer(channel);
+  bypassDelay.read(channels.data(), channelCount, buffer.getNumSamples(), getLatencySamples());
 }
 
 bool DtBlkFxAudioProcessor::hasEditor() const
