@@ -418,6 +418,14 @@ void testBypassDelay()
     }
     position += size;
   }
+
+  delay.reset();
+  block.assign(300, 1.0f);
+  channels[0] = block.data();
+  delay.write(channels, 1, 300);
+  delay.read(channels, 1, 300, latency);
+  check(std::all_of(block.begin(), block.begin() + latency, [](float v) { return v == 0.0f; }),
+        "reset must forget earlier input");
 }
 
 int main()

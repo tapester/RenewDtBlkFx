@@ -36,6 +36,14 @@ public:
     position = 0;
   }
 
+  // Forgets the stored input. Does not allocate.
+  void reset() noexcept
+  {
+    for (auto& ring : rings)
+      std::fill(ring.begin(), ring.end(), 0.0f);
+    position = 0;
+  }
+
   // Call with every block's input, bypassed or not, before anything overwrites it.
   void write(const float* const* channels, int channelCount, int sampleCount) noexcept
   {

@@ -394,6 +394,14 @@ void DtBlkFxAudioProcessor::releaseResources()
   setLatencySamples(0);
 }
 
+// Hosts call this to drop echoes and other tails, for example after a jump in the timeline.
+void DtBlkFxAudioProcessor::reset()
+{
+  if (engine->isPrepared())
+    engine->reset();
+  bypassDelay.reset();
+}
+
 bool DtBlkFxAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
 #if JucePlugin_IsMidiEffect
