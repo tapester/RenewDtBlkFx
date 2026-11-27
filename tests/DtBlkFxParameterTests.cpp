@@ -22,11 +22,14 @@
 
 #include "DtBlkFxEngine.h"
 #include "DtBlkFxLegacyMapping.h"
+#include "DtBlkFxValueText.h"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -189,13 +192,90 @@ void testHostileParameterValues()
 
 void testTypedNumber()
 {
-  using DtBlkFxLegacy::lastTypedNumber;
+  using DtBlkFxText::lastTypedNumber;
   check(lastTypedNumber("below 40%") == "40", "below 40%");
   check(lastTypedNumber("copy0/50%") == "50", "copy0/50%");
   check(lastTypedNumber("scale/12.5%") == "12.5", "scale/12.5%");
   check(lastTypedNumber("40,5") == "40,5", "decimal comma");
   check(lastTypedNumber("-5") == "-5", "-5");
   check(lastTypedNumber("below").empty(), "no number");
+}
+
+// Typing back what a knob shows must show the same again, also after the 0.0001 parameter step.
+void checkTextRoundTrip(const std::string& name,
+                        const std::function<std::string(double)>& format,
+                        const std::function<double(const std::string&)>& parse)
+{
+  // The mode words of a readout, and its numbers.
+  const auto words = [](const std::string& text) {
+    std::string result;
+    for (const char c : text)
+      if (std::isalpha(static_cast<unsigned char>(c)) && c != 'k') // Hz and kHz are one mode
+        result += c;
+    return result;
+  };
+  for (int step = 0; step <= 10000; ++step) {
+    const auto value = static_cast<float>(step) * 0.0001f;
+    const auto shown = format(value);
+    const auto typed = parse(shown);
+    const auto snapped = std::round(typed / 0.0001) * 0.0001;
+    const auto again = format(snapped);
+    // Two readouts for practically the same sound: -60 dB and silence, 0 dB and 100% mix.
+    if (shown == "-60.0 dB" || shown == "0.0 dB")
+      continue;
+    // The step can move the last digit, so compare the value, and the words exactly.
+    if (!check(typed >= 0.0 && typed <= 1.0 && words(again) == words(shown) &&
+                   (again == shown || std::abs(parse(again) - typed) <= 0.0015),
+               name + ": " + std::to_string(value) + " shows '" + shown + "', typed back shows '" +
+                   again + "'"))
+      return;
+  }
+}
+
+void testKnobTextRoundTrip()
+{
+  using namespace DtBlkFxText;
+  for (int type = 0; type < DtBlkFxLegacy::effectTypeCount; ++type) {
+    checkTextRoundTrip(
+        "value of effect " + std::to_string(type),
+        [type](double v) { return formatEffectValue(type, v); },
+        [type](const std::string& t) { return parseEffectValue(type, t); });
+    checkTextRoundTrip(
+        "amplitude of effect " + std::to_string(type),
+        [type](double v) { return formatAmplitude(type, v); },
+        [type](const std::string& t) { return parseAmplitude(type, t); });
+  }
+  checkTextRoundTrip("frequency", formatFrequency, parseFrequency);
+  checkTextRoundTrip("mix back", formatMixBack, parseMixBack);
+  checkTextRoundTrip("delay", formatDelay, parseDelay);
+  for (const auto sampleRate : {44100.0, 48000.0, 192000.0})
+    checkTextRoundTrip(
+        "block size",
+        [sampleRate](double v) { return formatBlockSize(v, sampleRate); },
+        [sampleRate](const std::string& t) { return parseBlockSize(t, sampleRate); });
+  for (const auto blockSize : {0.0, 72.0 / 255.0, 1.0})
+    checkTextRoundTrip(
+        "overlap",
+        [blockSize](double v) { return formatOverlap(v, blockSize); },
+        [blockSize](const std::string& t) { return parseOverlap(t, blockSize); });
+
+  // The largest number of a mode, typed in, stays in that mode.
+  const auto stays = [](int type, const std::string& text, const std::string& mode) {
+    const auto shown = formatEffectValue(type, parseEffectValue(type, text));
+    check(shown.find(mode) != std::string::npos, "typed '" + text + "' shows '" + shown + "'");
+  };
+  stays(3, "above 100%", "above");
+  stays(5, "+800% time fwd", "fwd");
+  stays(13, "100% both", "both");
+  stays(13, "100% odd", "odd");
+  stays(13, "100% even", "even");
+  stays(15, "scale/100%", "scale");
+  stays(26, "0% multiply", "multiply");
+  stays(29, "0% L on R", "L on R");
+  stays(30, "100 mode 0", "mode 0");
+
+  check(parseEffectValue(12, "c#4:+25") > parseEffectValue(12, "c#4:+00"), "positive cents");
+  check(parseFrequency("1,5 kHz") == parseFrequency("1 kHz"), "a comma ends the number");
 }
 
 // Parameters that change before every block, down to one sample, at the largest FFT size.
@@ -414,6 +494,7 @@ int main()
   runTest("block size encoding", testBlockSizeEncoding);
   runTest("hostile parameter values", testHostileParameterValues);
   runTest("typed number after words", testTypedNumber);
+  runTest("knob text round trip", testKnobTextRoundTrip);
   runTest("automation storm", testAutomationStorm);
   runTest("delay in beats encoding", testDelayBeatsEncoding);
   runTest("extreme tempo and beat phase", testExtremeTempoAndBeatPhase);
