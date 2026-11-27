@@ -225,6 +225,27 @@ void testAutomationStorm()
   }
 }
 
+// The Delay readout and typed beats must mean what the engine does.
+void testDelayBeatsEncoding()
+{
+  DtBlkFxEngine engine;
+  if (!check(engine.prepare(8, 48000.0), "prepare failed"))
+    return;
+  constexpr double samplesPerBeat = 24000.0;
+  for (const auto beats : {0.5f, 1.0f, 4.0f, 7.0f, 8.0f, 100.0f}) {
+    const auto value = DtBlkFxLegacy::delayBeatsToLegacyValue(beats);
+    const auto snapped = std::round(value / 0.0001f) * 0.0001f;
+    Params block{};
+    block[1] = snapped;
+    check(engine.configureLegacyParameters(block, samplesPerBeat, 0.0, false), "rejected");
+    const auto engineBeats = engine.getDelaySamples() / samplesPerBeat;
+    const auto expected = std::min(beats, 0.4999f * 15.9375f); // just under 8 beats is the most
+    check(std::abs(engineBeats - expected) < 0.01 &&
+              std::abs(DtBlkFxLegacy::legacyValueToDelayBeats(snapped) - expected) < 0.01,
+          "typed " + std::to_string(beats) + " beats gives " + std::to_string(engineBeats));
+  }
+}
+
 // Strange tempo and beat phase values, with block sync and parameter sync active.
 void testExtremeTempoAndBeatPhase()
 {
@@ -369,6 +390,7 @@ int main()
 {
   runTest("hostile parameter values", testHostileParameterValues);
   runTest("automation storm", testAutomationStorm);
+  runTest("delay in beats encoding", testDelayBeatsEncoding);
   runTest("extreme tempo and beat phase", testExtremeTempoAndBeatPhase);
   runTest("FFT size and delay sweeps", testFftSizeAndDelaySweeps);
   runTest("no click on a gain change", testNoClickOnGainChange);
