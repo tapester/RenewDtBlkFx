@@ -31,7 +31,7 @@ stays testable without JUCE.
 ## Build and test
 
 Build with CMake presets (see `readme.md` for prerequisites): `windows-x64`, `macos-arm64`,
-`macos-x64`, and their `*-tests` variants. Dependencies come from vcpkg manifest mode
+and their `*-tests` variants. Dependencies come from vcpkg manifest mode
 (`vcpkg.json`, FFTW3); do not run `vcpkg install` manually.
 
 ### What agents may do

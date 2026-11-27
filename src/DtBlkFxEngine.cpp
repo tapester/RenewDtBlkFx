@@ -31,6 +31,19 @@
 #include <new>
 
 namespace {
+// Effect Amplitude 0..1 is -60..+40 dB; zero is silence.
+float amplitudeToGain(float amplitude) noexcept
+{
+  return amplitude <= 0.0f ? 0.0f : std::pow(10.0f, (amplitude * 100.0f - 60.0f) * 0.05f);
+}
+
+// Frequency A..B inclusive; with A above B, everything outside the two.
+bool isInFrequencyRange(int bin, int firstBin, int secondBin) noexcept
+{
+  return firstBin <= secondBin ? bin >= firstBin && bin <= secondBin
+                               : bin <= secondBin || bin >= firstBin;
+}
+
 // FFTW's planner is not thread-safe (only fftwf_execute is), and hosts may prepare several
 // instances on different threads at once. All plan creation and destruction takes this lock.
 std::mutex& fftwPlannerMutex()
@@ -146,7 +159,6 @@ void DtBlkFxEngine::release() noexcept
   requestedFftSize = 0;
   fixedLatencySamples = 0; // new: a released engine goes back to "FFT size minus one"
   timeWindowSamples = 0;
-  preWindowSamples = 0;
   sampleRate = 44100.0;
   bins.clear();
   remapSource.clear();
@@ -391,8 +403,7 @@ bool DtBlkFxEngine::process(float* const* channels, int channelCount, int sample
       state.inputFrame[samplesProcessed % static_cast<size_t>(maxFftSize)] = channels[channel][sample];
     }
 
-    const auto frameReadyAt =
-        nextFrameStart + static_cast<size_t>(fftSize - preWindowSamples) - 1;
+    const auto frameReadyAt = nextFrameStart + static_cast<size_t>(fftSize) - 1;
     if (samplesProcessed >= frameReadyAt) {
       if (!processFrame(channelCount))
         return false;
@@ -514,15 +525,9 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
   for (int channel = 0; channel < channelCount; ++channel) {
     auto& state = channelStates[static_cast<size_t>(channel)];
     for (int sample = 0; sample < fftSize; ++sample) {
-      if (sample < preWindowSamples && nextFrameStart < static_cast<size_t>(preWindowSamples)) {
-        state.outputFrame[static_cast<size_t>(sample)] = 0.0f;
-      }
-      else {
-        const auto inputPosition = nextFrameStart - static_cast<size_t>(preWindowSamples) +
-                                   static_cast<size_t>(sample);
-        state.outputFrame[static_cast<size_t>(sample)] =
-            state.inputFrame[inputPosition % static_cast<size_t>(maxFftSize)];
-      }
+      const auto inputPosition = nextFrameStart + static_cast<size_t>(sample);
+      state.outputFrame[static_cast<size_t>(sample)] =
+          state.inputFrame[inputPosition % static_cast<size_t>(maxFftSize)];
     }
 
     if (!forward(state.outputFrame.data(), bins.data(), fftSize))
@@ -613,8 +618,7 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
       const auto inputIndex =
           (nextFrameStart + static_cast<size_t>(sample)) % static_cast<size_t>(maxFftSize);
       const auto original = state.inputFrame[inputIndex];
-      const auto processed =
-          state.outputFrame[static_cast<size_t>(preWindowSamples + sample)] * outputScale;
+      const auto processed = state.outputFrame[static_cast<size_t>(sample)] * outputScale;
       const auto mixed = original * mixBack + processed * (1.0f - mixBack);
       auto& outputValue = getOutputSampleForWrite(
           state, destinationStart + static_cast<size_t>(sample));
@@ -844,7 +848,6 @@ int DtBlkFxEngine::getDelaySamples(float parameter) const noexcept
 void DtBlkFxEngine::updateTimeWindow() noexcept
 {
   timeWindowSamples = fftSize;
-  preWindowSamples = 0;
 }
 
 void DtBlkFxEngine::updateHopSize() noexcept
@@ -1060,15 +1063,13 @@ void DtBlkFxEngine::applyFilter(const EffectParameters& effect) noexcept
 
   const auto amplitude =
       std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
-  const auto gain =
-      amplitude <= 0.0f ? 0.0f : std::pow(10.0f, (amplitude * 100.0f - 60.0f) * 0.05f);
+  const auto gain = amplitudeToGain(amplitude);
   const auto firstBin = getFrequencyBin(effect.frequencyA);
   const auto secondBin = getFrequencyBin(effect.frequencyB);
   const auto binCount = fftBinCount(fftSize);
 
   for (int bin = 0; bin < binCount; ++bin) {
-    const auto selected = firstBin <= secondBin ? bin >= firstBin && bin <= secondBin
-                                                : bin <= secondBin || bin >= firstBin;
+    const auto selected = isInFrequencyRange(bin, firstBin, secondBin);
     if (selected && isEffectBinSelected(bin)) {
       bins[static_cast<size_t>(bin)].real *= gain;
       bins[static_cast<size_t>(bin)].imaginary *= gain;
@@ -1085,9 +1086,7 @@ void DtBlkFxEngine::applyContrast(const EffectParameters& effect) noexcept
   const auto firstBin = getFrequencyBin(effect.frequencyA);
   const auto secondBin = getFrequencyBin(effect.frequencyB);
   const auto selected = [this, firstBin, secondBin](int bin) {
-    return isEffectBinSelected(bin) &&
-           (firstBin <= secondBin ? bin >= firstBin && bin <= secondBin
-                                  : bin <= secondBin || bin >= firstBin);
+    return isEffectBinSelected(bin) && isInFrequencyRange(bin, firstBin, secondBin);
   };
   const auto contrastValue =
       std::isfinite(effect.value) ? std::clamp(effect.value, 0.0f, 1.0f) : 0.5f;
@@ -1099,8 +1098,7 @@ void DtBlkFxEngine::applyContrast(const EffectParameters& effect) noexcept
 
   const auto effectAmplitude =
       std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
-  const auto amplitude =
-      effectAmplitude <= 0.0f ? 0.0f : std::pow(10.0f, (effectAmplitude * 100.0f - 60.0f) * 0.05f);
+  const auto amplitude = amplitudeToGain(effectAmplitude);
   const auto processRange = [this, minValue, maxValue, raise, amplitude](int lowerBin,
                                                                          int upperBin) {
     const auto count = upperBin - lowerBin + 1;
@@ -1169,16 +1167,12 @@ void DtBlkFxEngine::applySmear(const EffectParameters& effect) noexcept
   const auto smear = std::isfinite(effect.value) ? std::clamp(effect.value, 0.0f, 1.0f) : 0.0f;
   const auto amplitude =
       std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
-  const auto gain =
-      amplitude <= 0.0f ? 0.0f : std::pow(10.0f, (amplitude * 100.0f - 60.0f) * 0.05f);
+  const auto gain = amplitudeToGain(amplitude);
   const auto firstBin = getFrequencyBin(effect.frequencyA);
   const auto secondBin = getFrequencyBin(effect.frequencyB);
   const auto binCount = fftBinCount(fftSize);
   for (int bin = 0; bin < binCount; ++bin) {
-    const auto selected =
-        isEffectBinSelected(bin) &&
-        (firstBin <= secondBin ? bin >= firstBin && bin <= secondBin
-                               : bin <= secondBin || bin >= firstBin);
+    const auto selected = isEffectBinSelected(bin) && isInFrequencyRange(bin, firstBin, secondBin);
     if (!selected)
       continue;
 
@@ -1212,9 +1206,7 @@ void DtBlkFxEngine::applyThreshold(const EffectParameters& effect) noexcept
   const auto firstBin = getFrequencyBin(effect.frequencyA);
   const auto secondBin = getFrequencyBin(effect.frequencyB);
   const auto selected = [this, firstBin, secondBin](int bin) {
-    return isEffectBinSelected(bin) &&
-           (firstBin <= secondBin ? bin >= firstBin && bin <= secondBin
-                                  : bin <= secondBin || bin >= firstBin);
+    return isEffectBinSelected(bin) && isInFrequencyRange(bin, firstBin, secondBin);
   };
   float minimumPower = std::numeric_limits<float>::max();
   float maximumPower = 1.0e-30f;
@@ -1233,8 +1225,7 @@ void DtBlkFxEngine::applyThreshold(const EffectParameters& effect) noexcept
   const auto threshold = std::exp(minLogPower + thresholdPosition * (maxLogPower - minLogPower));
   const auto amplitude =
       std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
-  const auto gain =
-      amplitude <= 0.0f ? 0.0f : std::pow(10.0f, (amplitude * 100.0f - 60.0f) * 0.05f);
+  const auto gain = amplitudeToGain(amplitude);
   std::fill(selectionMask.begin(), selectionMask.end(), 0);
   for (int bin = 0; bin < binCount; ++bin) {
     if (!selected(bin))
@@ -1268,15 +1259,12 @@ void DtBlkFxEngine::applyClip(const EffectParameters& effect) noexcept
   const auto clipPosition = 1.0f - clipValue * clipValue;
   const auto amplitude =
       std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
-  const auto gain =
-      amplitude <= 0.0f ? 0.0f : std::pow(10.0f, (amplitude * 100.0f - 60.0f) * 0.05f);
+  const auto gain = amplitudeToGain(amplitude);
   const auto binCount = fftBinCount(fftSize);
   const auto firstBin = getFrequencyBin(effect.frequencyA);
   const auto secondBin = getFrequencyBin(effect.frequencyB);
   const auto selected = [this, firstBin, secondBin](int bin) {
-    return isEffectBinSelected(bin) &&
-           (firstBin <= secondBin ? bin >= firstBin && bin <= secondBin
-                                  : bin <= secondBin || bin >= firstBin);
+    return isEffectBinSelected(bin) && isInFrequencyRange(bin, firstBin, secondBin);
   };
   float minimumPower = std::numeric_limits<float>::max();
   float maximumPower = 1.0e-30f;
@@ -1336,16 +1324,13 @@ void DtBlkFxEngine::remapFrequencies(const EffectParameters& effect,
 
   const auto amplitude =
       std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
-  const auto gain =
-      amplitude <= 0.0f ? 0.0f : std::pow(10.0f, (amplitude * 100.0f - 60.0f) * 0.05f);
+  const auto gain = amplitudeToGain(amplitude);
   const auto sourceGain = std::clamp(1.0f - gain, 0.0f, 1.0f);
   const auto binCount = fftBinCount(fftSize);
   const auto firstBin = getFrequencyBin(effect.frequencyA);
   const auto secondBin = getFrequencyBin(effect.frequencyB);
   const auto selected = [this, firstBin, secondBin](int bin) {
-    return isEffectBinSelected(bin) &&
-           (firstBin <= secondBin ? bin >= firstBin && bin <= secondBin
-                                  : bin <= secondBin || bin >= firstBin);
+    return isEffectBinSelected(bin) && isInFrequencyRange(bin, firstBin, secondBin);
   };
 
   std::copy(bins.begin(), bins.end(), remapSource.begin());
@@ -1626,8 +1611,7 @@ void DtBlkFxEngine::applySweep(const EffectParameters& effect) noexcept
   const auto tableFraction = tablePosition - static_cast<float>(firstTable);
   const auto amplitude =
       std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
-  const auto gain =
-      amplitude <= 0.0f ? 0.0f : std::pow(10.0f, (amplitude * 100.0f - 60.0f) * 0.05f);
+  const auto gain = amplitudeToGain(amplitude);
   const auto originalGain = std::max(1.0f - gain, 0.0f);
   const auto sweepIndex = effect.type - 15;
   const auto harmonicPower = [=](int harmonic) {
@@ -1756,8 +1740,7 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
   const auto secondFrequencyBin = getFrequencyBin(effect.frequencyB);
   const auto amplitude =
       std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
-  const auto gain =
-      amplitude <= 0.0f ? 0.0f : std::pow(10.0f, (amplitude * 100.0f - 60.0f) * 0.05f);
+  const auto gain = amplitudeToGain(amplitude);
   auto& left = channelStates[0].spectrum;
   auto& right = channelStates[1].spectrum;
 
@@ -1952,8 +1935,6 @@ void DtBlkFxEngine::applyStereoEffect(const EffectParameters& effect,
       auto scale = mixBack;
       if (sourcePower > 0.0 && destinationPower > 0.0)
         scale += gain * std::sqrt(sourcePower / destinationPower);
-      else if (sourcePower <= 0.0)
-        scale = mixBack;
       for (auto bin = rangeStart; bin <= rangeEnd; ++bin) {
         if (!isEffectBinSelected(bin))
           continue;
@@ -2102,7 +2083,7 @@ void DtBlkFxEngine::applyWarpMix(const EffectParameters& effect, size_t frameSta
   constexpr float zeroDbParameter = 0.6f;
   auto amplitude = amplitudeParameter < zeroDbParameter
                        ? amplitudeParameter * (1.0f / zeroDbParameter)
-                       : std::pow(10.0f, (amplitudeParameter * 100.0f - 60.0f) * 0.05f);
+                       : amplitudeToGain(amplitudeParameter);
   auto valuePowerScale = 1.0e8f / static_cast<float>(fftSize);
   auto segmentCount = 4.0f;
   if (amplitude < 1.0f) {
@@ -2313,8 +2294,7 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect,
   const auto value = std::isfinite(effect.value) ? std::clamp(effect.value, 0.0f, 1.0f) : 0.5f;
   const auto amplitude =
       std::isfinite(effect.amplitude) ? std::clamp(effect.amplitude, 0.0f, 1.0f) : 0.0f;
-  const auto gain =
-      amplitude <= 0.0f ? 0.0f : std::pow(10.0f, (amplitude * 100.0f - 60.0f) * 0.05f);
+  const auto gain = amplitudeToGain(amplitude);
   const auto sourceGain = std::clamp(1.0f - gain, 0.0f, 1.0f);
   const auto binCount = fftBinCount(fftSize);
   const auto maximumBin = binCount - 1;
@@ -2370,9 +2350,7 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect,
   // Frequency A/B limit which bins are affected (A above B: outside them). HarmFilt uses them
   // for its fundamental and upper end instead.
   const auto isSelected = [&](int bin) {
-    const auto inRange = firstFrequencyBin <= secondFrequencyBin
-                             ? bin >= firstFrequencyBin && bin <= secondFrequencyBin
-                             : bin <= secondFrequencyBin || bin >= firstFrequencyBin;
+    const auto inRange = isInFrequencyRange(bin, firstFrequencyBin, secondFrequencyBin);
     return isEffectBinSelected(bin) && (effect.type == 13 || inRange);
   };
 
@@ -2423,9 +2401,7 @@ void DtBlkFxEngine::applyHarmonicEffect(const EffectParameters& effect,
     if (!harmonicShift)
       continue;
 
-    const auto multiplier = frequencyMultiplier;
-    const auto binShift = center * (multiplier - 1.0f);
-    const auto shift = repitchMode ? binShift : center * (multiplier - 1.0f);
+    const auto shift = center * (frequencyMultiplier - 1.0f);
     const auto framePhase = static_cast<double>(frameStart % static_cast<size_t>(fftSize));
     for (auto sourceBin = start; sourceBin <= end; ++sourceBin) {
       if (!isSelected(sourceBin))

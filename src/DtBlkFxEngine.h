@@ -211,7 +211,6 @@ private:
   int requestedFftSize = 0;
   int fixedLatencySamples = 0;
   int timeWindowSamples = 0;
-  int preWindowSamples = 0;
   int hopSize = 0;
   int nextHopSize = 0;
   int delaySamples = 0;
