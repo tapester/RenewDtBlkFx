@@ -169,6 +169,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: free-audio/clap-validator
+          # Same commit as the Windows release below; update both together.
+          ref: 152b9823e992d782c5c1fd33bca0295478b919aa
           path: tools/clap-validator
 
       - name: Build clap-validator
@@ -176,13 +178,14 @@ jobs:
         shell: bash
         run: |
           cd tools/clap-validator
-          cargo build --release
+          cargo build --release --locked
 
       - name: Download clap-validator (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Hardcode the release to download; update both values when a new clap-validator release is published.
+          # Hardcode the release to download; update both values when a new clap-validator release is published,
+          # and the macOS `ref` above to the same commit.
           # $tag is the release tag; $zipName is the exact asset name from that release.
           $tag = "0.4.1"
           $zipName = "clap-validator-0.4.1-127-g152b982-windows.zip"
