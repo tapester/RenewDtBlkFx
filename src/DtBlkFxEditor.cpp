@@ -242,9 +242,6 @@ double parseEffectValue(int type, const juce::String& text)
     case 2:
     case 4:
       return std::clamp(value / 100.0, 0.0, 1.0);
-    case 3:
-    case 25:
-      return std::clamp(value / 200.0 + (text.startsWithIgnoreCase("below") ? 0.5 : 0.0), 0.0, 1.0);
     case 5: {
       const auto scale = std::cbrt(value / 100.0);
       const auto fraction = std::clamp((scale + 2.0) * 0.25, 0.0, 1.0);
@@ -279,7 +276,9 @@ double parseEffectValue(int type, const juce::String& text)
         const auto rest = lowered.substring(prefix.length());
         const auto octave = rest.getIntValue();
         const auto centsPosition = rest.indexOfChar(':');
-        const auto cents = centsPosition >= 0 ? rest.substring(centsPosition + 1).getIntValue() : 0;
+        // getDoubleValue, because getIntValue reads "+25" as 0.
+        const auto cents =
+            centsPosition >= 0 ? rest.substring(centsPosition + 1).getDoubleValue() : 0.0;
         return std::clamp(
             (octave * 12.0 + static_cast<double>(note) + cents / 100.0) / 127.5, 0.0, 1.0);
       }
@@ -301,14 +300,22 @@ double parseEffectValue(int type, const juce::String& text)
         mode = 3;
       return std::clamp((mode + value / 100.0) * 0.25, 0.0, 1.0);
     }
+    case 3:
+    case 25:
     case 15:
     case 16:
     case 17:
     case 18:
     case 19:
     case 27:
-    case 28:
-      return std::clamp(value / 200.0 + (text.startsWithIgnoreCase("copy0") ? 0.5 : 0.0), 0.0, 1.0);
+    case 28: {
+      const auto typed =
+          juce::String(DtBlkFxLegacy::lastTypedNumber(text.toStdString())).getDoubleValue() / 200.0;
+      // The first half stops below 0.5, or 100% would flip to the other mode.
+      return text.startsWithIgnoreCase("below") || text.startsWithIgnoreCase("copy0")
+                 ? std::clamp(0.5 + typed, 0.5, 1.0)
+                 : std::clamp(typed, 0.0, 0.4999);
+    }
     case 26:
       return text.containsIgnoreCase("multiply")
                  ? std::clamp(0.875 + value / 800.0, 0.875, 1.0)

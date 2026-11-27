@@ -187,6 +187,17 @@ void testHostileParameterValues()
   std::cout << "  " << runs << " runs\n";
 }
 
+void testTypedNumber()
+{
+  using DtBlkFxLegacy::lastTypedNumber;
+  check(lastTypedNumber("below 40%") == "40", "below 40%");
+  check(lastTypedNumber("copy0/50%") == "50", "copy0/50%");
+  check(lastTypedNumber("scale/12.5%") == "12.5", "scale/12.5%");
+  check(lastTypedNumber("40,5") == "40,5", "decimal comma");
+  check(lastTypedNumber("-5") == "-5", "-5");
+  check(lastTypedNumber("below").empty(), "no number");
+}
+
 // Parameters that change before every block, down to one sample, at the largest FFT size.
 void testAutomationStorm()
 {
@@ -402,6 +413,7 @@ int main()
 {
   runTest("block size encoding", testBlockSizeEncoding);
   runTest("hostile parameter values", testHostileParameterValues);
+  runTest("typed number after words", testTypedNumber);
   runTest("automation storm", testAutomationStorm);
   runTest("delay in beats encoding", testDelayBeatsEncoding);
   runTest("extreme tempo and beat phase", testExtremeTempoAndBeatPhase);
