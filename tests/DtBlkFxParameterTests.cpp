@@ -377,6 +377,18 @@ void testNoClickOnGainChange()
                              " (steady tone: about " + std::to_string(maxStepBefore) + ")");
 }
 
+// A typed Block Size is stored in a parameter with a 0.0001 step; it must decode to the same size.
+void testBlockSizeEncoding()
+{
+  for (int index = 0; index < DtBlkFxEngine::fftSizeCount; ++index) {
+    const auto value = DtBlkFxLegacy::fftPlanIndexToLegacyValue(index);
+    const auto snapped = std::round(value / 0.0001f) * 0.0001f;
+    check(DtBlkFxLegacy::legacyValueToFftPlanIndex(snapped) == index,
+          "block size " + std::to_string(DtBlkFxEngine::fftSizeAt(index)) +
+              " does not survive the parameter step");
+  }
+}
+
 void runTest(const char* name, void (*test)())
 {
   const auto failuresBefore = failureCount;
@@ -388,6 +400,7 @@ void runTest(const char* name, void (*test)())
 
 int main()
 {
+  runTest("block size encoding", testBlockSizeEncoding);
   runTest("hostile parameter values", testHostileParameterValues);
   runTest("automation storm", testAutomationStorm);
   runTest("delay in beats encoding", testDelayBeatsEncoding);

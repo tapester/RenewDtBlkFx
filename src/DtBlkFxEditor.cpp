@@ -416,7 +416,7 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
         closestDistance = distance;
       }
     }
-    return std::clamp((closestIndex + 1.5) * 4.0 / 255.0, 0.0, 1.0);
+    return static_cast<double>(DtBlkFxLegacy::fftPlanIndexToLegacyValue(closestIndex));
   };
   globalSliders[3].textFromValueFunction = [this](double value) {
     const auto plan =

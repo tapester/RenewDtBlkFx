@@ -50,6 +50,13 @@ inline int legacyValueToFftPlanIndex(float value) noexcept
   return static_cast<int>(value * 255.0f / 4.0f - 1.5f);
 }
 
+// Encode a plan index. As in legacy, +2 puts the value in the middle of its bucket, so snapping to
+// the parameter's step cannot change the index.
+inline float fftPlanIndexToLegacyValue(int index) noexcept
+{
+  return (static_cast<float>(index) + 2.0f) * 4.0f / 255.0f;
+}
+
 // Mix Back (parameter 0). Values up to 0.5 mean Power Match mode (mix 0..1); above 0.5 mean
 // Filter mode (mix 1..0). Encoder and decoders live together so they cannot drift apart.
 inline float mixBackToLegacyValue(float mixBack, bool powerMatch) noexcept
