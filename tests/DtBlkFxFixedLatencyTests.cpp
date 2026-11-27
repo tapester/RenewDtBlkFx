@@ -21,6 +21,7 @@
 // FFT size, and changing the FFT size while playing must not move, double or drop audio.
 // These tests do not link JUCE.
 
+#include "DtBlkFxBypassDelay.h"
 #include "DtBlkFxEngine.h"
 #include "DtBlkFxLegacyMapping.h"
 
@@ -388,6 +389,37 @@ void runTest(const char* name, void (*test)())
 
 } // namespace
 
+void testBypassDelay()
+{
+  DtBlkFxBypassDelay delay;
+  std::vector<float> block{1.0f, 2.0f};
+  float* channels[] = {block.data()};
+  delay.write(channels, 1, 2);
+  delay.read(channels, 1, 2, 100);
+  check(block[0] == 1.0f && block[1] == 2.0f, "unprepared must pass through");
+
+  // Ramp input in uneven blocks, wrapping the ring several times.
+  constexpr int latency = 255;
+  delay.prepare(600);
+  int position = 0;
+  for (const auto size : {1, 64, 300, 7, 345, 128, 0, 256, 33}) {
+    block.assign(static_cast<size_t>(size), 0.0f);
+    for (int i = 0; i < size; ++i)
+      block[static_cast<size_t>(i)] = static_cast<float>(position + i + 1);
+    channels[0] = block.data();
+    delay.write(channels, 1, size);
+    delay.read(channels, 1, size, latency);
+    for (int i = 0; i < size; ++i) {
+      const auto source = position + i - latency;
+      const auto expected = source < 0 ? 0.0f : static_cast<float>(source + 1);
+      if (!check(block[static_cast<size_t>(i)] == expected,
+                 "wrong sample at " + std::to_string(position + i)))
+        return;
+    }
+    position += size;
+  }
+}
+
 int main()
 {
   runTest("steady delay is latency plus delay at every FFT size", testSteadyDelayIsLatencyPlusDelay);
@@ -395,6 +427,7 @@ int main()
   runTest("latency change while playing", testLatencyChangeWhilePlaying);
   runTest("FFT size is limited to the budget", testFftSizeIsLimitedToBudget);
   runTest("random latency budgets and sizes", testFuzz);
+  runTest("bypass delays the input by the latency", testBypassDelay);
 
   std::cout << (failureCount == 0 ? "All fixed latency tests passed" : "Fixed latency tests failed") << " ("
             << failureCount << " failed checks)" << std::endl;

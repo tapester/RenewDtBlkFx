@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "DtBlkFxBypassDelay.h"
 #include "DtBlkFxHostTiming.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -56,6 +57,8 @@ public:
 
   void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
   using AudioProcessor::processBlock;
+  void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+  using AudioProcessor::processBlockBypassed;
 
   juce::AudioProcessorEditor* createEditor() override;
   bool hasEditor() const override;
@@ -108,6 +111,7 @@ private:
   std::unique_ptr<DtBlkFxEngine> engine;
   ParameterHandles handles;
   DtBlkFxHost::BeatTracker beatTracker;
+  DtBlkFxBypassDelay bypassDelay;
   double currentSampleRate = 44100.0;
   // Latency currently applied to the engine and reported to the host (0 when not prepared).
   int appliedLatencySamples = 0;
