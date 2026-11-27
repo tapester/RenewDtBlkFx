@@ -266,6 +266,9 @@ void testKnobTextRoundTrip()
   };
   stays(3, "above 100%", "above");
   stays(5, "+800% time fwd", "fwd");
+  stays(12, "c-9", "f-7"); // too high a note stops below the right-channel range
+  stays(12, "right -24 notes", "right -24.00");
+  stays(12, "Right +7", "right +7.00");
   stays(13, "100% both", "both");
   stays(13, "100% odd", "odd");
   stays(13, "100% even", "even");
