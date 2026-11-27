@@ -19,8 +19,8 @@
 
 #include "DtBlkFxEditor.h"
 #include "DtBlkFxEngine.h"
-#include "DtBlkFxLegacyMapping.h"
 #include "DtBlkFxFactoryPresets.h"
+#include "DtBlkFxLegacyMapping.h"
 
 #include <algorithm>
 #include <cmath>
