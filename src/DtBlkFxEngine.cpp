@@ -545,7 +545,13 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
           static_cast<double>(bin.imaginary) * bin.imaginary;
     std::copy(bins.begin(), bins.end(), state.spectrum.begin());
     if (tap != nullptr)
-      tap->add(false, bins.data(), static_cast<int>(bins.size()), fftSize, sampleRate, powerScale);
+      tap->add(false,
+               channel,
+               bins.data(),
+               static_cast<int>(bins.size()),
+               fftSize,
+               sampleRate,
+               powerScale);
   }
 
   for (size_t effectIndex = 0; effectIndex < effects.size(); ++effectIndex) {
@@ -622,6 +628,7 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
     // As the original: after the effects and power matching, before Mix Back.
     if (tap != nullptr)
       tap->add(true,
+               channel,
                bins.data(),
                static_cast<int>(bins.size()),
                fftSize,

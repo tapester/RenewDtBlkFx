@@ -55,17 +55,18 @@ bool testSpectrumTap()
   if (!check(render() && tap.pop(line), fftSize, "no spectrum line"))
     return false;
 
-  const auto peak = static_cast<int>(
-      std::max_element(line.input.begin(), line.input.end()) - line.input.begin());
+  const auto& left = line.input[0];
+  const auto peak = static_cast<int>(std::max_element(left.begin(), left.end()) - left.begin());
   const auto expected = std::log2(toneBin * sampleRate / fftSize / 16.35159898333181161) * 12.0 /
                         127.5 * DtBlkFxSpectrum::columns;
   passed &= check(std::abs(peak - expected) <= 1.5, fftSize, "spectrum peak is in the wrong column");
-  const auto power = line.input[static_cast<size_t>(peak)];
+  const auto power = left[static_cast<size_t>(peak)];
   passed &= check(std::abs(power - 0.25f) < 0.01f, fftSize, "full-scale sine must read 0.25");
   passed &= check(DtBlkFxSpectrum::level(power) == 1.0f && DtBlkFxSpectrum::level(1e-9f) == 0.0f,
                   fftSize,
                   "colour level range");
-  passed &= check(line.output[static_cast<size_t>(peak)] < power * 0.001f,
+  passed &= check(line.input[1][static_cast<size_t>(peak)] == 0.0f, fftSize, "mono has no right");
+  passed &= check(line.output[0][static_cast<size_t>(peak)] < power * 0.001f,
                   fftSize,
                   "the output line must show the filtered tone");
 

@@ -259,6 +259,7 @@ endif()
 
 target_sources(DtBlkFx PRIVATE
     src/DtBlkFxEditor.cpp
+    src/DtBlkFxWidgets.cpp
     src/DtBlkFxProcessor.cpp
 )
 
@@ -266,6 +267,10 @@ target_sources(DtBlkFx PRIVATE
 juce_add_binary_data(DtBlkFxImages SOURCES
     resources/stereo_fx_bg.png
     resources/stereo_global_ctrl.png
+    resources/stereo_hslider_bg_coarse.png
+    resources/stereo_hslider_bg_fine.png
+    resources/stereo_hslider_knob_coarse.png
+    resources/stereo_hslider_knob_fine.png
     resources/stereo_splash.png
 )
 set_target_properties(DtBlkFxImages PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
@@ -317,6 +322,7 @@ if(BUILD_TESTING)
             tests/${juce_test_name}.cpp
             src/DtBlkFxProcessor.cpp
             src/DtBlkFxEditor.cpp
+            src/DtBlkFxWidgets.cpp
         )
 
         target_include_directories(${juce_test_name} PRIVATE

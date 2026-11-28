@@ -164,6 +164,12 @@ interaction works; also test manually in a DAW.
   configurable output Delay is added on top and is not reported to the host. Loading a factory
   preset sets Latency to fit its Block Size (at least 4096), so large presets add more delay.
   Bypassed audio is delayed by the same amount, so it stays in time.
+- **Window:** Looks and works like the original, can be resized, and has a
+  slim extra bar for presets, Latency and Parameter Sync. On a value, drag
+  down for the coarse slider or up for the fine one, right-click for a list,
+  double-click to type; Ctrl/Cmd makes the mouse wheel fine. Right-drag or
+  Shift-drag a frequency to move A and B together. Hover a spectrogram to read
+  note and frequency; click it to show input, output, one channel, or pause.
 - **Block-size independent:** The engine waits for a full FFT frame, so its
   output does not depend on the host's block size. The legacy VST2 plug-in
   could force partial frames at callback boundaries.
@@ -190,7 +196,9 @@ not yet verified:
 - Fundamental tracking and the stereo effects still need comparison against
   legacy reference renders. `tests/reference_compare` renders both
   implementations from the same 44 parameters for this purpose.
-- The live spectrogram has not been ported.
+- The window differs from the original in details: some value readouts use
+  other wording, and the range highlight on the spectrograms does not mark
+  which edge is being changed.
 
 ### CPU load with large block sizes
 
@@ -223,8 +231,6 @@ host buffer.
 
 ## Remaining porting activities
 
-- **Port the live visualization:** publish input/output spectra to the
-   editor safely, independent of the editor's lifetime.
 - **Complete release validation:** verify preset/state migration, transport
    and sample-rate changes, channel layouts, and latency/tail reporting;
    expand DSP regressions with edge frequencies, zero/full amplitude and

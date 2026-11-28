@@ -83,6 +83,8 @@ public:
 
   // Filled by the engine while an editor has enabled it.
   DtBlkFxSpectrum& getSpectrum() noexcept { return spectrum; }
+  // The tempo of the last processed block, or 0 before the first one.
+  double getSamplesPerBeat() const noexcept { return samplesPerBeat.load(); }
 
 private:
   // Pointers to the parameters' raw values, looked up once in the constructor so that the
@@ -114,6 +116,7 @@ private:
   int getSelectedLatencySamples() const noexcept;
 
   DtBlkFxSpectrum spectrum;
+  std::atomic<double> samplesPerBeat{0.0};
   std::unique_ptr<DtBlkFxEngine> engine;
   ParameterHandles handles;
   DtBlkFxHost::BeatTracker beatTracker;
