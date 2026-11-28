@@ -22,6 +22,65 @@ float maxAbsDifference(const std::vector<float>& left, const std::vector<float>&
   return error;
 }
 
+// The spectrogram lines show a tone at its place on the frequency scale, with the original's
+// level, and the output line shows what the effects left of it.
+bool testSpectrumTap()
+{
+  constexpr double sampleRate = 44100.0;
+  constexpr int fftSize = 4096;
+  constexpr int toneBin = 100;
+  DtBlkFxSpectrum tap;
+  DtBlkFxEngine engine;
+  engine.setSpectrumTap(&tap);
+  if (!check(engine.prepare(16, sampleRate), fftSize, "prepare failed"))
+    return false;
+  engine.configureScheduler(0.0f, 0);
+
+  std::array<DtBlkFxEngine::EffectParameters, 8> effects{};
+  effects[0].type = 0; // Filter at its lowest gain over the whole range
+  effects[0].amplitude = 0.0f;
+  engine.configureEffects(effects, 0.0f, false);
+
+  std::vector<float> audio(fftSize * 4);
+  const auto render = [&] {
+    for (size_t i = 0; i < audio.size(); ++i)
+      audio[i] = std::sin(6.2831853f * toneBin * static_cast<float>(i % fftSize) / fftSize);
+    auto* channel = audio.data();
+    return engine.process(&channel, 1, static_cast<int>(audio.size()));
+  };
+
+  DtBlkFxSpectrum::Line line;
+  bool passed = check(render() && !tap.pop(line), fftSize, "a disabled tap must stay empty");
+  tap.enabled = true;
+  if (!check(render() && tap.pop(line), fftSize, "no spectrum line"))
+    return false;
+
+  const auto peak = static_cast<int>(
+      std::max_element(line.input.begin(), line.input.end()) - line.input.begin());
+  const auto expected = std::log2(toneBin * sampleRate / fftSize / 16.35159898333181161) * 12.0 /
+                        127.5 * DtBlkFxSpectrum::columns;
+  passed &= check(std::abs(peak - expected) <= 1.5, fftSize, "spectrum peak is in the wrong column");
+  const auto power = line.input[static_cast<size_t>(peak)];
+  passed &= check(std::abs(power - 0.25f) < 0.01f, fftSize, "full-scale sine must read 0.25");
+  passed &= check(DtBlkFxSpectrum::level(power) == 1.0f && DtBlkFxSpectrum::level(1e-9f) == 0.0f,
+                  fftSize,
+                  "colour level range");
+  passed &= check(line.output[static_cast<size_t>(peak)] < power * 0.001f,
+                  fftSize,
+                  "the output line must show the filtered tone");
+
+  // Nobody reading: lines are dropped, and after a reset new ones still arrive.
+  for (int i = 0; i < 80; ++i)
+    render();
+  int queued = 0;
+  while (tap.pop(line))
+    ++queued;
+  passed &= check(queued == 128, fftSize, "a full queue holds 128 lines");
+  engine.reset();
+  passed &= check(render() && tap.pop(line), fftSize, "no spectrum line after reset");
+  return passed;
+}
+
 bool renderStartupTiming(int delaySamples,
                          const std::array<int, 5>& chunkSizes,
                          std::vector<float>& output)
@@ -1337,6 +1396,7 @@ int main()
 
   passed &= check(!engine.forward(nullptr, nullptr, 256), 256, "null buffers should be rejected");
   passed &= check(!engine.forward(nullptr, nullptr, 1000), 1000, "unsupported FFT size accepted");
+  passed &= testSpectrumTap();
   passed &= testStartupOutputTiming();
   passed &= testDelayTransitionsRemainContinuous();
   passed &= testScheduler(0, 0.0f, 0);

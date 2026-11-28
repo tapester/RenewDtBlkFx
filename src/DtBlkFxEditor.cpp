@@ -105,6 +105,25 @@ constexpr int rowHeight = 24;
 constexpr int rowsTop = barHeight + globalHeight + splashHeight;
 constexpr int baseHeight = rowsTop + 8 * rowHeight;
 constexpr int maxScale = 3;
+// Each spectrogram: a line of frame, the picture, a line of frame and the octave ticks.
+constexpr int spectrogramHeight = splashHeight / 2;
+constexpr int spectrogramRows = spectrogramHeight - 3;
+constexpr int spectrogramLeft = (baseWidth - DtBlkFxSpectrum::columns) / 2;
+
+// Black, blue, cyan, green, yellow, red.
+juce::Colour spectrogramColour(float level)
+{
+  static const std::array<juce::Colour, 6> stops{juce::Colour(0xff000000),
+                                                 juce::Colour(0xff0000ff),
+                                                 juce::Colour(0xff00ffff),
+                                                 juce::Colour(0xff00cc00),
+                                                 juce::Colour(0xffffff00),
+                                                 juce::Colour(0xffff0000)};
+  const auto position = level * 5.0f;
+  const auto index = juce::jlimit(0, 4, static_cast<int>(position));
+  return stops[static_cast<size_t>(index)].interpolatedWith(
+      stops[static_cast<size_t>(index + 1)], position - static_cast<float>(index));
+}
 
 bool isMaskEffect(int type)
 {
@@ -113,7 +132,7 @@ bool isMaskEffect(int type)
 
 // White text with a black outline, pink on the control in use.
 void drawOutlined(juce::Graphics& graphics,
-                  const juce::Component& owner,
+                  const juce::Component* owner,
                   const juce::String& text,
                   juce::Rectangle<int> area)
 {
@@ -127,8 +146,8 @@ void drawOutlined(juce::Graphics& graphics,
     for (int dy = -1; dy <= 1; ++dy)
       if (dx != 0 || dy != 0)
         draw(dx, dy);
-  const auto active =
-      owner.isEnabled() && (owner.isMouseOverOrDragging(true) || owner.hasKeyboardFocus(true));
+  const auto active = owner != nullptr && owner->isEnabled() &&
+                      (owner->isMouseOverOrDragging(true) || owner->hasKeyboardFocus(true));
   graphics.setColour(active ? juce::Colour(0xffff8080) : juce::Colours::white);
   draw(0, 0);
 }
@@ -161,7 +180,7 @@ ValueCell::ValueCell()
 void ValueCell::paint(juce::Graphics& graphics)
 {
   drawOutlined(graphics,
-               *this,
+               this,
                isEnabled() ? getTextFromValue(getValue()) : juce::String("-"),
                getLocalBounds().removeFromBottom(textHeight));
 }
@@ -195,7 +214,7 @@ TypeCell::TypeCell()
 
 void TypeCell::paint(juce::Graphics& graphics)
 {
-  drawOutlined(graphics, *this, getText(), getLocalBounds());
+  drawOutlined(graphics, this, getText(), getLocalBounds());
 }
 
 SwitchCell::SwitchCell(const juce::String& title, const juce::String& on, const juce::String& off)
@@ -210,9 +229,51 @@ SwitchCell::SwitchCell(const juce::String& title, const juce::String& on, const 
 void SwitchCell::paintButton(juce::Graphics& graphics, bool, bool)
 {
   drawOutlined(graphics,
-               *this,
+               this,
                getToggleState() ? onText : offText,
                getLocalBounds().removeFromBottom(15));
+}
+
+Spectrogram::Spectrogram(const juce::Image& splash, int pictureTop)
+    : image(juce::Image::RGB, DtBlkFxSpectrum::columns, spectrogramRows, true)
+    , top(pictureTop)
+{
+  juce::Graphics graphics(image);
+  graphics.drawImageAt(
+      splash, -spectrogramLeft, -(top - barHeight - globalHeight) - 1);
+}
+
+void Spectrogram::addLine(const std::array<float, DtBlkFxSpectrum::columns>& power)
+{
+  image.moveImageSection(0, 0, 0, 1, image.getWidth(), image.getHeight() - 1);
+  juce::Image::BitmapData pixels(image, juce::Image::BitmapData::writeOnly);
+  for (int x = 0; x < image.getWidth(); ++x)
+    pixels.setPixelColour(
+        x,
+        image.getHeight() - 1,
+        spectrogramColour(DtBlkFxSpectrum::level(power[static_cast<size_t>(x)])));
+}
+
+void Spectrogram::paint(juce::Graphics& graphics, const juce::String& name) const
+{
+  graphics.setColour(juce::Colours::black);
+  graphics.fillRect(0, top, baseWidth, spectrogramHeight - 1);
+  graphics.setOpacity(1.0f);
+  graphics.drawImageAt(image, spectrogramLeft, top + 1);
+
+  // A tick at every octave from C0.
+  const auto ticks = top + spectrogramHeight - 1;
+  graphics.setColour(juce::Colours::white);
+  graphics.fillRect(0, ticks, baseWidth, 1);
+  graphics.setColour(juce::Colours::black);
+  for (int octave = 0; octave * 12.0 < 127.5; ++octave)
+    graphics.fillRect(spectrogramLeft +
+                          juce::roundToInt(octave * 12.0 / 127.5 * DtBlkFxSpectrum::columns),
+                      ticks,
+                      1,
+                      1);
+
+  drawOutlined(graphics, nullptr, name, {280, top + 3, 108, 18});
 }
 
 } // namespace DtBlkFxUi
@@ -226,6 +287,8 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
                                                   BinaryData::stereo_splash_pngSize))
     , rowImage(juce::ImageCache::getFromMemory(BinaryData::stereo_fx_bg_png,
                                                BinaryData::stereo_fx_bg_pngSize))
+    , spectrograms{{{splashImage, barHeight + globalHeight},
+                    {splashImage, barHeight + globalHeight + spectrogramHeight}}}
 {
   canvas.onPaint = [this](juce::Graphics& graphics) { paintCanvas(graphics); };
   canvas.setSize(baseWidth, baseHeight);
@@ -236,16 +299,16 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
   presetDropdown.onChange = [this] { loadPreset(presetDropdown.getSelectedId()); };
   factoryPresets = DtBlkFxFactory::parsePresets(DtBlkFxFactory::presetText());
   refreshPresets();
-  presetDropdown.setBounds(4, 3, 130, 22);
+  presetDropdown.setBounds(4, 3, 110, 22);
   canvas.addAndMakeVisible(presetDropdown);
 
   presetMenuButton.onClick = [this] { showPresetMenu(); };
-  presetMenuButton.setBounds(136, 3, 24, 22);
+  presetMenuButton.setBounds(116, 3, 24, 22);
   canvas.addAndMakeVisible(presetMenuButton);
 
   latency.addItemList(DtBlkFxAudioProcessor::latencyChoiceNames(), 1);
   latency.setTitle("Latency (max block size)");
-  latency.setBounds(210, 3, 102, 22);
+  latency.setBounds(186, 3, 126, 22);
   canvas.addAndMakeVisible(latency);
   // The Block Size readout says when the latency limits it.
   latency.onChange = [this] { globalSliders[2].repaint(); };
@@ -375,6 +438,31 @@ DtBlkFxAudioProcessorEditor::DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor& 
   setResizeLimits(baseWidth, baseHeight, baseWidth * maxScale, baseHeight * maxScale);
   getConstrainer()->setFixedAspectRatio(static_cast<double>(baseWidth) / baseHeight);
   setSize(width, juce::roundToInt(width * static_cast<double>(baseHeight) / baseWidth));
+
+  // Drop what an earlier editor left unread.
+  DtBlkFxSpectrum::Line stale;
+  while (processorRef.getSpectrum().pop(stale)) {
+  }
+  processorRef.getSpectrum().enabled = true;
+  startTimerHz(30);
+}
+
+DtBlkFxAudioProcessorEditor::~DtBlkFxAudioProcessorEditor()
+{
+  processorRef.getSpectrum().enabled = false;
+}
+
+void DtBlkFxAudioProcessorEditor::timerCallback()
+{
+  DtBlkFxSpectrum::Line line;
+  auto changed = false;
+  while (processorRef.getSpectrum().pop(line)) {
+    spectrograms[0].addLine(line.input);
+    spectrograms[1].addLine(line.output);
+    changed = true;
+  }
+  if (changed)
+    canvas.repaint(0, barHeight + globalHeight, baseWidth, splashHeight);
 }
 
 namespace {
@@ -631,9 +719,13 @@ void DtBlkFxAudioProcessorEditor::paintCanvas(juce::Graphics& graphics)
   graphics.fillAll(juce::Colour(0xff17191d));
   graphics.setColour(juce::Colours::white);
   graphics.setFont(juce::Font(juce::FontOptions(12.0f)));
-  graphics.drawText("Latency", 162, 0, 46, barHeight, juce::Justification::centredRight);
+  graphics.drawText("Latency", 140, 0, 44, barHeight, juce::Justification::centredRight);
   graphics.drawImageAt(globalImage, 0, barHeight);
+  // Under the spectrograms, which leave its last line uncovered.
   graphics.drawImageAt(splashImage, 0, barHeight + globalHeight);
+  const juce::String channels = processorRef.getTotalNumInputChannels() > 1 ? " L+R" : "";
+  spectrograms[0].paint(graphics, "Input" + channels);
+  spectrograms[1].paint(graphics, "Output" + channels);
   for (size_t slot = 0; slot < effectTypes.size(); ++slot)
     paintEffectRow(graphics, slot);
 }

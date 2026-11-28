@@ -520,6 +520,12 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
   }
   fadeInSamples = std::clamp<std::int64_t>(fadeInSamples, 0, timeWindowSamples);
 
+  auto* const tap = spectrumTap != nullptr && spectrumTap->enabled.load(std::memory_order_relaxed)
+                        ? spectrumTap
+                        : nullptr;
+  // The forward transform is not scaled.
+  const auto powerScale = 1.0f / (static_cast<float>(fftSize) * static_cast<float>(fftSize));
+
   auto& inputPowers = frameInputPowers;
   inputPowers = {};
   for (int channel = 0; channel < channelCount; ++channel) {
@@ -538,6 +544,8 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
           static_cast<double>(bin.real) * bin.real +
           static_cast<double>(bin.imaginary) * bin.imaginary;
     std::copy(bins.begin(), bins.end(), state.spectrum.begin());
+    if (tap != nullptr)
+      tap->add(false, bins.data(), static_cast<int>(bins.size()), fftSize, sampleRate, powerScale);
   }
 
   for (size_t effectIndex = 0; effectIndex < effects.size(); ++effectIndex) {
@@ -611,6 +619,15 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
                                    0.0,
                                    1.0e30)));
 
+    // As the original: after the effects and power matching, before Mix Back.
+    if (tap != nullptr)
+      tap->add(true,
+               bins.data(),
+               static_cast<int>(bins.size()),
+               fftSize,
+               sampleRate,
+               powerScale * outputScale * outputScale);
+
     if (!inverse(bins.data(), state.outputFrame.data(), fftSize))
       return false;
 
@@ -642,6 +659,8 @@ bool DtBlkFxEngine::processFrame(int channelCount) noexcept
   }
 
   outputEndSample = std::max(outputEndSample, frameEnd);
+  if (tap != nullptr)
+    tap->frameDone(nextFrameStart + static_cast<size_t>(timeWindowSamples));
   return true;
 }
 
