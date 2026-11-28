@@ -471,6 +471,7 @@ void DtBlkFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
   }
   const auto timing = beatTracker.update(transport, buffer.getNumSamples());
+  samplesPerBeat = timing.samplesPerBeat;
 
   const auto legacyParameters = getLegacyParameterBlock();
   if (!engine->configureLegacyParameters(legacyParameters,

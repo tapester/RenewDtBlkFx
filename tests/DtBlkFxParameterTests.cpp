@@ -283,6 +283,35 @@ void testKnobTextRoundTrip()
   check(parseEffectValue(12, "c#4:+25") > parseEffectValue(12, "c#4:+00"), "positive cents");
   check(parseFrequency("1,5 kHz") == parseFrequency("1 kHz"), "a comma ends the number");
 
+  // The original's right-click lists.
+  for (int type = 0; type < 31; ++type) {
+    for (const auto& choice : effectValueChoices(type, 0.3))
+      check(choice.value >= 0.0 && choice.value <= 1.0 && !choice.label.empty(),
+            "list entry of type " + std::to_string(type));
+    for (const auto& choice : amplitudeChoices(type))
+      check(choice.value >= 0.0 && choice.value <= 1.0, "amplitude list entry");
+  }
+  check(effectValueChoices(0, 0.5).empty() && effectValueChoices(9, 0.5).empty(), "no list");
+  check(effectValueChoices(7, 0.5).size() == 19 && effectValueChoices(7, 0.5)[1].label == "-12.00 notes",
+        "shift list");
+  check(std::abs(effectValueChoices(7, 0.5).back().value - (0.5 + 12.0 / 72.0)) < 1e-9,
+        "shift by 12 notes");
+  check(effectValueChoices(12, 0.85).back().value > 0.9, "right channel repitch steps");
+  check(effectValueChoices(5, 0.5).size() == 28 && effectValueChoices(26, 0.5).size() == 12,
+        "list lengths");
+  check(formatEffectValue(27, 0.6) == "40% even", "HarmMatch shows harmonics");
+  check(amplitudeChoices(0).front().label == "-inf" && amplitudeChoices(7).front().label == "0%",
+        "amplitude lists");
+  check(formatOverlap(overlapChoices().front().value, 0.5) !=
+            formatOverlap(overlapChoices().back().value, 0.5),
+        "overlap list");
+  check(blockSizeChoices(44100.0, 22050.0).size() == 34, "block size list");
+  const auto beatDelays = delayChoices(parseDelay("1 beats"), 0.5, 44100.0, 22050.0);
+  check(std::abs(beatDelays[0].value - (0.5 + 0.5 / 12.0)) < 0.001, "one beat as time");
+  check(std::abs(delayChoices(beatDelays[0].value, 0.5, 44100.0, 22050.0)[0].value -
+                 parseDelay("1 beats")) < 0.001,
+        "and back to beats");
+
   // The original's number format.
   check(shortNumber(242.2, 1.0) == "242", "242");
   check(shortNumber(1514.0, 1.0) == "1.51k", "1.51k");

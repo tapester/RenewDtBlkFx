@@ -36,9 +36,11 @@ public:
   static constexpr size_t minimumSamplesPerLine = 600;
 
   // The largest bin power in each column; a full-scale sine reads 0.25.
+  using Columns = std::array<float, columns>;
+  // Left and right; only the first is filled for mono.
   struct Line {
-    std::array<float, columns> input{};
-    std::array<float, columns> output{};
+    std::array<Columns, 2> input{};
+    std::array<Columns, 2> output{};
   };
 
   // Set by the reader; the engine does no work for the spectrogram while this is false.
@@ -58,13 +60,14 @@ public:
   // bin of its own shows the nearest one.
   template <typename Bin>
   void add(bool output,
+           int channel,
            const Bin* bins,
            int binCount,
            int fftSize,
            double sampleRate,
            float powerScale) noexcept
   {
-    auto& line = output ? pending.output : pending.input;
+    auto& line = (output ? pending.output : pending.input)[static_cast<size_t>(channel)];
     // Column edges lie half a column below each column's frequency.
     const auto step = std::exp2(127.5 / 12.0 / columns);
     auto edge = c0Frequency * std::sqrt(step) * fftSize / sampleRate;

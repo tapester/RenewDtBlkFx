@@ -32,6 +32,7 @@
 #include <locale>
 #include <sstream>
 #include <string>
+#include <vector>
 
 // The editor's readouts and typed values. Free of JUCE so the engine tests can check them.
 // Numbers always use a decimal point, whatever the host's locale is.
@@ -233,7 +234,9 @@ inline std::string formatEffectValue(int type, double normalized)
     case 21:
     case 22:
     case 23:
-    case 24: {
+    case 24:
+    case 27:
+    case 28: {
       const auto scaled = normalized * 4.0;
       const auto mode = std::min(static_cast<int>(scaled), 3);
       const auto fraction = scaled - mode;
@@ -243,9 +246,7 @@ inline std::string formatEffectValue(int type, double normalized)
     case 16:
     case 17:
     case 18:
-    case 19:
-    case 27:
-    case 28: {
+    case 19: {
       const auto copy = normalized >= 0.5;
       const auto fraction = copy ? (normalized - 0.5) * 2.0 : normalized * 2.0;
       return std::string(copy ? "copy0/" : "scale/") + rounded(fraction * 100.0) + "%";
@@ -332,7 +333,9 @@ inline double parseEffectValue(int type, const std::string& text)
     case 21:
     case 22:
     case 23:
-    case 24: {
+    case 24:
+    case 27:
+    case 28: {
       auto mode = 0;
       if (endsWith(text, "odd"))
         mode = 1;
@@ -350,9 +353,7 @@ inline double parseEffectValue(int type, const std::string& text)
     case 16:
     case 17:
     case 18:
-    case 19:
-    case 27:
-    case 28: {
+    case 19: {
       const auto typed = typedNumber(lastTypedNumber(text)) / 200.0;
       // The first half stops below 0.5, or 100% would flip to the other mode.
       return startsWith(text, "below") || startsWith(text, "copy0")
@@ -447,6 +448,193 @@ inline double parseOverlap(const std::string& text, double blockSizeValue)
   const auto maximumHop = static_cast<double>(blockSize - 16);
   const auto requestedHop = blockSize * (1.0 - typedNumber(text) / 100.0);
   return std::clamp((maximumHop - requestedHop) / (maximumHop - minimumHop), 0.0, 1.0);
+}
+
+// ---- The original's right-click lists ----
+
+struct Choice {
+  std::string label;
+  double value;
+  bool relative = false; // a step from the current value, never shown as ticked
+};
+
+inline std::vector<Choice> effectValueChoices(int type, double current)
+{
+  std::vector<Choice> choices;
+  const auto add = [&](double value) { choices.push_back({formatEffectValue(type, value), value}); };
+  // Evenly spaced, both ends included.
+  const auto spread = [&](int count, double first, double last) {
+    for (int i = 0; i < count; ++i)
+      add(first + (last - first) * i / (count - 1));
+  };
+  const auto steps = [&](const char* before, double perNote, double lowest, double highest) {
+    for (const int notes : {-12, -9, -7, -5, -3, -2, -1, 1, 2, 3, 5, 7, 9, 12})
+      choices.push_back({std::string(before) + (notes > 0 ? "+" : "") + std::to_string(notes) +
+                             " notes",
+                         std::clamp(current + notes * perNote, lowest, highest),
+                         true});
+  };
+
+  switch (type) {
+    case 1:
+      spread(9, 0.0, 1.0);
+      break;
+    case 2:
+    case 4:
+      spread(5, 0.0, 1.0);
+      break;
+    case 3:
+    case 15:
+    case 16:
+    case 17:
+    case 18:
+    case 19:
+    case 25:
+    case 29:
+    case 30:
+      spread(5, 0.0, 0.4999);
+      spread(5, 0.5, 1.0);
+      break;
+    case 5:
+      for (const double value :
+           {0.0,      0.051575, 0.092510, 0.125,    0.150787, 0.171255, 0.191980,
+            0.308020, 0.328745, 0.349213, 0.375,    0.407490, 0.448425, 0.4999,
+            0.5,      0.551575, 0.592510, 0.625,    0.650787, 0.671255, 0.691980,
+            0.808020, 0.828745, 0.849213, 0.875,    0.907490, 0.948425, 1.0})
+        add(value);
+      break;
+    case 6:
+    case 7:
+    case 11:
+      // 0, -12, +12, -24 and +24 notes, then steps.
+      for (const int notes : {0, -12, 12, -24, 24})
+        add(0.5 + notes / 72.0);
+      steps("Change shift by ", 1.0 / 72.0, 0.0, 1.0);
+      break;
+    case 8:
+      for (const double value :
+           {0.321054, 0.389299, 0.473659, 0.476198, 0.478758, 0.481339, 0.483942,
+            0.486566, 0.489211, 0.491877, 0.494564, 0.497272, 0.5,      0.502728,
+            0.505436, 0.508123, 0.510789, 0.513434, 0.516058, 0.518661, 0.521242,
+            0.523802, 0.526341, 0.610701, 0.678946})
+        add(value);
+      break;
+    case 12:
+      // C2 to C6, then following the right channel at 0, +12 and -12 notes.
+      for (int octave = 2; octave <= 6; ++octave)
+        add(12.0 * octave / 127.5);
+      for (const double value : {0.85, 0.925, 0.775})
+        add(value);
+      if (static_cast<float>(current) >= 0.7f)
+        steps("Change by ", 0.3 / 48.0, 0.7, 1.0);
+      else
+        steps("Change by ", 1.0 / 127.5, 0.0, 0.699);
+      break;
+    case 13:
+    case 14:
+    case 20:
+    case 21:
+    case 22:
+    case 23:
+    case 24:
+    case 27:
+    case 28:
+      for (int mode = 0; mode < 4; ++mode)
+        spread(5, mode * 0.25, mode == 3 ? 1.0 : mode * 0.25 + 0.2499);
+      break;
+    case 26:
+      for (const int segments : {1, 10, 20, 40, 100, 200, 300})
+        add((segments - 1) * 0.8749 / 399.0);
+      for (const int percent : {0, 25, 50, 75, 100})
+        add(0.875 + percent / 100.0 * 0.125);
+      break;
+    default:
+      break;
+  }
+  return choices;
+}
+
+inline std::vector<Choice> amplitudeChoices(int type)
+{
+  std::vector<Choice> choices;
+  const auto mix = effectUsesMixAmplitude(type);
+  if (mix)
+    for (int percent = 0; percent <= 100; percent += 25)
+      choices.push_back({std::to_string(percent) + "%", percent * 0.006});
+  else
+    choices.push_back({"-inf", 0.0});
+  for (int dB = mix ? 10 : -40; dB <= 40; dB += 10)
+    choices.push_back({std::to_string(dB) + " dB", (dB + 60) / 100.0});
+  return choices;
+}
+
+inline std::vector<Choice> mixBackChoices()
+{
+  std::vector<Choice> choices;
+  for (int percent = 0; percent <= 100; percent += 25)
+    choices.push_back({std::to_string(percent) + "%", percent / 100.0});
+  return choices;
+}
+
+inline std::vector<Choice> overlapChoices()
+{
+  std::vector<Choice> choices{{"minimum", 0.0}};
+  for (int percent = 10; percent <= 80; percent += 10)
+    choices.push_back({std::to_string(percent) + "%", percent / 85.0});
+  choices.push_back({"maximum", 1.0});
+  return choices;
+}
+
+inline std::string describeLength(double samples, double sampleRate, double samplesPerBeat)
+{
+  return shortNumber(samples / sampleRate, 1e-3) + "sec, " + std::to_string(std::lrint(samples)) +
+         " samps, (" + fixed(samples / samplesPerBeat, 2) + " beats)";
+}
+
+inline std::vector<Choice> blockSizeChoices(double sampleRate, double samplesPerBeat)
+{
+  std::vector<Choice> choices;
+  for (int index = 0; index < DtBlkFxEngine::fftSizeCount; ++index)
+    choices.push_back(
+        {describeLength(DtBlkFxEngine::fftSizeAt(index), sampleRate, samplesPerBeat),
+         DtBlkFxLegacy::fftPlanIndexToLegacyValue(index)});
+  return choices;
+}
+
+// The current delay in the other unit, the current block size, then beat presets.
+inline std::vector<Choice> delayChoices(double current,
+                                        double blockSizeValue,
+                                        double sampleRate,
+                                        double samplesPerBeat)
+{
+  const auto timeValue = [&](double samples) {
+    return std::clamp(0.5 + samples / sampleRate / 12.0, 0.5, 1.0);
+  };
+  const auto beatsValue = [](double beats) {
+    return static_cast<double>(
+        DtBlkFxLegacy::delayBeatsToLegacyValue(static_cast<float>(beats)));
+  };
+  const auto inBeats = current < 0.5;
+  const auto samples =
+      inBeats ? DtBlkFxLegacy::legacyValueToDelayBeats(static_cast<float>(current)) * samplesPerBeat
+              : (current - 0.5) * 12.0 * sampleRate;
+
+  std::vector<Choice> choices;
+  choices.push_back(
+      {(inBeats ? "As time: " : "As beats: ") + describeLength(samples, sampleRate, samplesPerBeat),
+       inBeats ? timeValue(samples) : beatsValue(samples / samplesPerBeat),
+       true});
+  const auto block = static_cast<double>(blockSizeSamples(blockSizeValue));
+  choices.push_back({"Block size: " + describeLength(block, sampleRate, samplesPerBeat),
+                     timeValue(block),
+                     true});
+  for (const double beats :
+       {0.25, 1.0 / 3.0, 0.5, 2.0 / 3.0, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0})
+    choices.push_back({fixed(beats, 2) + " beats, (" +
+                           std::to_string(static_cast<long>(beats * samplesPerBeat)) + " samps, " +
+                           shortNumber(beats * samplesPerBeat / sampleRate, 1e-3) + "sec)",
+                       beatsValue(beats)});
+  return choices;
 }
 
 } // namespace DtBlkFxText
