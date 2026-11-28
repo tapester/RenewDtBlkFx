@@ -262,6 +262,14 @@ target_sources(DtBlkFx PRIVATE
     src/DtBlkFxProcessor.cpp
 )
 
+# The original plug-in's pictures, compiled into the editor.
+juce_add_binary_data(DtBlkFxImages SOURCES
+    resources/stereo_fx_bg.png
+    resources/stereo_global_ctrl.png
+    resources/stereo_splash.png
+)
+set_target_properties(DtBlkFxImages PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+
 # ==============================================================================
 # JUCE compile definitions
 # ==============================================================================
@@ -285,6 +293,7 @@ target_link_libraries(DtBlkFx PRIVATE
     juce::juce_recommended_warning_flags
     juce::juce_recommended_lto_flags
     DtBlkFxEngine
+    DtBlkFxImages
 )
 
 # ==============================================================================
@@ -329,6 +338,7 @@ if(BUILD_TESTING)
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags
             DtBlkFxEngine
+            DtBlkFxImages
         )
 
         add_test(NAME ${juce_test_name} COMMAND ${juce_test_name})

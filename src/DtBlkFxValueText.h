@@ -104,13 +104,33 @@ inline std::string lastTypedNumber(const std::string& text)
   return text.substr(start, last + 1 - start);
 }
 
+// The original's number format: three digits with u, m, k or M ("81.3m", "1.51k"). Only units
+// whose limit lies above minUnit are used.
+inline std::string shortNumber(double value, double minUnit = 0.0)
+{
+  static const std::array<const char*, 5> units{"u", "m", "", "k", "M"};
+  int step = 0;
+  auto limit = 1e-5;
+  while (step < 14 && !(limit > minUnit * 1.5 && std::abs(value) < limit)) {
+    ++step;
+    limit *= 10.0;
+  }
+  return fixed(value * std::pow(1000.0, 2 - step / 3), 2 - step % 3) +
+         units[static_cast<size_t>(step / 3)];
+}
+
+// Seconds from typed text such as "81.3msec", "20 ms" or "1.5 sec".
+inline double typedSeconds(const std::string& text)
+{
+  return typedNumber(text) * (contains(text, "ms") ? 1e-3 : contains(text, "us") ? 1e-6 : 1.0);
+}
+
 inline std::string formatFrequency(double normalized)
 {
   if (normalized <= 0.0)
-    return "0 Hz";
+    return "0Hz";
 
-  const auto frequency = c0Frequency * std::pow(2.0, normalized * 127.5 / 12.0);
-  return frequency >= 1000.0 ? fixed(frequency / 1000.0, 2) + " kHz" : fixed(frequency, 1) + " Hz";
+  return shortNumber(c0Frequency * std::pow(2.0, normalized * 127.5 / 12.0), 1.0) + "Hz";
 }
 
 inline double parseFrequency(const std::string& text)
@@ -129,7 +149,7 @@ inline bool effectUsesMixAmplitude(int type)
 inline std::string formatAmplitude(int type, double normalized)
 {
   if (effectUsesMixAmplitude(type) && normalized <= 0.6)
-    return rounded(normalized * 100.0 / 0.6) + "%";
+    return fixed(normalized * 100.0 / 0.6, 1) + " %";
   if (normalized <= 0.0)
     return "-inf dB";
   return fixed(-60.0 + normalized * 100.0, 1) + " dB";
@@ -367,16 +387,14 @@ inline std::string formatDelay(double value)
 {
   if (value < 0.5)
     return fixed(DtBlkFxLegacy::legacyValueToDelayBeats(static_cast<float>(value)), 2) + " beats";
-  return fixed((value - 0.5) * 12.0, 3) + " sec";
+  return shortNumber((value - 0.5) * 12.0) + "sec";
 }
 
 inline double parseDelay(const std::string& text)
 {
   const auto value = typedNumber(text);
-  if (contains(text, "sec"))
-    return std::clamp(0.5 + value / 12.0, 0.5, 1.0);
-  if (contains(text, "ms"))
-    return std::clamp(0.5 + value / 12000.0, 0.5, 1.0);
+  if (contains(text, "sec") || contains(text, "ms"))
+    return std::clamp(0.5 + typedSeconds(text) / 12.0, 0.5, 1.0);
   return DtBlkFxLegacy::delayBeatsToLegacyValue(static_cast<float>(value));
 }
 
@@ -391,12 +409,15 @@ inline int blockSizeSamples(double value)
 
 inline std::string formatBlockSize(double value, double sampleRate)
 {
-  return fixed(blockSizeSamples(value) / sampleRate, 3) + " sec";
+  return shortNumber(blockSizeSamples(value) / sampleRate) + "sec";
 }
 
 inline double parseBlockSize(const std::string& text, double sampleRate)
 {
-  const auto requestedSize = typedNumber(text) * (contains(text, "sec") ? sampleRate : 1.0);
+  // A bare number is a size in samples.
+  const auto requestedSize = contains(text, "sec") || contains(text, "ms")
+                                 ? typedSeconds(text) * sampleRate
+                                 : typedNumber(text);
   auto closestIndex = 0;
   auto closestDistance = std::numeric_limits<double>::max();
   for (int index = 0; index < DtBlkFxEngine::fftSizeCount; ++index) {
