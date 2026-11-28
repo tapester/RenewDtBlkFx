@@ -64,11 +64,24 @@ struct Canvas : public juce::Component {
   void paint(juce::Graphics& graphics) override { onPaint(graphics); }
 };
 
+// A scrolling waterfall of one spectrum, newest line at the bottom. Starts as the splash picture.
+class Spectrogram {
+public:
+  Spectrogram(const juce::Image& splash, int top);
+  void addLine(const std::array<float, DtBlkFxSpectrum::columns>& power);
+  void paint(juce::Graphics&, const juce::String& name) const;
+
+private:
+  juce::Image image;
+  int top;
+};
+
 } // namespace DtBlkFxUi
 
-class DtBlkFxAudioProcessorEditor : public juce::AudioProcessorEditor {
+class DtBlkFxAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer {
 public:
   explicit DtBlkFxAudioProcessorEditor(DtBlkFxAudioProcessor&);
+  ~DtBlkFxAudioProcessorEditor() override;
 
   // Fills what a host window of another shape leaves around the canvas.
   void paint(juce::Graphics& graphics) override { graphics.fillAll(juce::Colours::black); }
@@ -83,6 +96,7 @@ private:
   using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
   using ParameterAttachment = juce::ParameterAttachment;
 
+  void timerCallback() override;
   void paintCanvas(juce::Graphics&);
   void paintEffectRow(juce::Graphics&, size_t slot);
   void updateEffectControls(size_t slot);
@@ -102,6 +116,8 @@ private:
   // Everything is laid out once on the canvas at the original size; resizing only scales it.
   DtBlkFxUi::Canvas canvas;
   const juce::Image globalImage, splashImage, rowImage;
+  // Input above, output below.
+  std::array<DtBlkFxUi::Spectrogram, 2> spectrograms;
   juce::ComboBox presetDropdown;
   juce::TextButton presetMenuButton{"..."};
   // Dropdown item ids: 1 is "Default", then the factory presets, then the user presets.

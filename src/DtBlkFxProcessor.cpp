@@ -120,6 +120,7 @@ DtBlkFxAudioProcessor::DtBlkFxAudioProcessor()
     , parameters(*this, nullptr, "Parameters", createParameterLayout())
     , engine(std::make_unique<DtBlkFxEngine>())
 {
+  engine->setSpectrumTap(&spectrum);
   cacheParameterHandles();
 }
 

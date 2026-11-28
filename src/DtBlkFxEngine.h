@@ -19,6 +19,8 @@
 
 #pragma once
 
+#include "DtBlkFxSpectrum.h"
+
 #include <fftw3.h>
 
 #include <array>
@@ -91,6 +93,8 @@ public:
                         float mixBack,
                         bool powerMatch) noexcept;
   void reset() noexcept;
+  // Where each frame's input and output spectrum goes, or nullptr. Kept across prepare().
+  void setSpectrumTap(DtBlkFxSpectrum* tap) noexcept { spectrumTap = tap; }
 
   static int fftSizeAt(int index) noexcept;
   static int fftBinCount(int fftSize) noexcept;
@@ -233,4 +237,5 @@ private:
   float mixBack = 1.0f;
   bool powerMatch = false;
   std::uint32_t smearRandomState = 1;
+  DtBlkFxSpectrum* spectrumTap = nullptr;
 };

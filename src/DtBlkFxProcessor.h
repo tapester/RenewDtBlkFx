@@ -21,6 +21,7 @@
 
 #include "DtBlkFxBypassDelay.h"
 #include "DtBlkFxHostTiming.h"
+#include "DtBlkFxSpectrum.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -80,6 +81,9 @@ public:
   void getStateInformation(juce::MemoryBlock& destData) override;
   void setStateInformation(const void* data, int sizeInBytes) override;
 
+  // Filled by the engine while an editor has enabled it.
+  DtBlkFxSpectrum& getSpectrum() noexcept { return spectrum; }
+
 private:
   // Pointers to the parameters' raw values, looked up once in the constructor so that the
   // audio thread never builds parameter IDs or searches by name.
@@ -109,6 +113,7 @@ private:
   // Latency in samples selected by the "latency" parameter (clamped to the valid range).
   int getSelectedLatencySamples() const noexcept;
 
+  DtBlkFxSpectrum spectrum;
   std::unique_ptr<DtBlkFxEngine> engine;
   ParameterHandles handles;
   DtBlkFxHost::BeatTracker beatTracker;
